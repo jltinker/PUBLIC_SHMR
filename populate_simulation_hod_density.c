@@ -43,7 +43,6 @@
  */
 double *g21_rad, *g21_xi;
 int g21_nrad;
-FILE *FP1;
 
 /* External functions.
  */
@@ -58,14 +57,58 @@ void free_i3tensor(int ***t, long nrl, long nrh, long ncl, long nch,
 /* Internal function
  */
 void calc_nbody_two_halo(float **gal, int *id, int ngal);
-void mmin_from_file();
-double func1_mmin_from_file(double m);
+void M_min_delta(double m, double delta, double norm);
+double find_norm(double norm);
 
-void populate_simulation_hod()
+double box_n_glob_pop;
+double slope_glob_pop=-0.05;
+float *mass_glob_pop, *delta_glob_pop;
+int nhalos_glob_pop;
+
+void M_min_delta(double m, double delta, double norm)
 {
-  FILE *fp,*fpa[9],*fp2,*fpb[9],*fpc[9],*fps[9],*fpt, *fp1;
+  double factor;
+  factor = norm + slope_glob_pop * delta;
+  if (factor > 0.05)
+    HOD.M_min = HOD.M_min_0 * factor;
+  else
+    HOD.M_min = HOD.M_min_0 * 0.05;
+}
+
+double find_norm(double norm)
+{
+  float mass, ncen, ngals, nsat;
+  int i;
+
+  for (i = 0; i < nhalos_glob_pop; ++i)
+    {
+      mass = mass_glob_pop[i];
+      if(mass > HOD.M_max) continue;
+      if(mass < HOD.M_low) continue;
+
+      M_min_delta(mass, delta_glob_pop[i], norm);
+      //printf("%e %e %e\n",HOD.M_min_0, HOD.M_min,delta_glob_pop[i]);
+      ncen=N_cen(mass);
+      ngals += ncen;
+      nsat = N_sat(mass);
+      ngals += nsat;
+      if(isnan(ngals)){ fmuh(mass); exit(0); }
+    }
+  ngals /= (BOX_SIZE*BOX_SIZE*BOX_SIZE);
+
+  printf("\nNORMALISATION FACTOR:\t%f\nNUMBER DENSITY OF GALAXIES:\t%f\ndifference:\t%f\n", norm, ngals, ngals - box_n_glob_pop);
+  //exit(0);
+  return (ngals - box_n_glob_pop);
+  
+}
+
+void populate_simulation_hod_density()
+{
+  FILE *fp, *fdelta, *fpa[9],*fp2,*fpb[9],*fpc[9],*fps[9],*fpt, *fgal;
   int i,j,k,n,imass,n1,j_start=0,i1,galcnt[1000],halocnt[1000],imag;
-  double mass,xg[3],vg[3],nsat,nc[10],ncen,mlo,mag,err1,err2,r,fac,sigv;
+  int nhalos, haloid;
+  float *xhs, *yhs, *zhs, *vxhs, *vyhs, *vzhs, rootnorm;
+  double mass,xg[3],vg[3],nsat,nc[10],ncen,mlo,mag,err1,err2,r,fac,sigv, ngals;
   char aa[1000];
   float x1,xh[3],vh[3],vgf[3];
   long IDUM3 = -445;
@@ -74,10 +117,11 @@ void populate_simulation_hod()
   int *galid,id1=0,id2=0,j1;
   float dx,dy,dz,dr,drh,rv1,rv2,rmin,rmax;
   float **haloarr;
-  int ngal,nsati[9],ALL_FILES=0,TRACK_GALAXIES=0,WARREN_MASS_CORRECTION=0,haloid;
+  int ngal,nsati[9],ALL_FILES=0,TRACK_GALAXIES=0,WARREN_MASS_CORRECTION=0;
+  int HOD_ENV=1, ii;
 
   float *xt,*yt,*zt,*vxt,*vyt,*vzt;
-  int iflag = 0;
+
   int SO_FILE = 1,
     JEANS_DISPERSION = 0;
 
@@ -85,31 +129,15 @@ void populate_simulation_hod()
   // WARREN_MASS_CORRECTION = 1;
 
   TRACK_GALAXIES=0;
+  ngals=0.0;
 
-  if(ARGC>2)
-    {
-      iflag =1;
-      srand48(atoi(ARGV[2]));
-      printf("populate_simulation_hod> SEED= %d\n",atoi(ARGV[2]));
-      // get the value of OMEGA_M
-      fp1 = openfile("omega_value.dat");
-      fscanf(fp1,"%lf",&OMEGA_M);
-      fclose(fp1);
-      fprintf(stdout,"NEW OMEGA_M: %f\n",OMEGA_M);
-      //get the value of slogm
-      HOD.sigma_logM = atof(ARGV[3]);
-      fprintf(stdout,"NEW SIGMA_LOGM: %f\n",HOD.sigma_logM);
-      SO_FILE = 0;
-    }
-
-  if(TRACK_GALAXIES)
-    {
-      galarr = matrix(1,10000000,0,5);
-      haloarr = matrix(1,10000000,0,6);
-      galid = ivector(1,10000000);
-    }
+  galarr = matrix(1,10000000,0,5);
+  haloarr = matrix(1,10000000,0,6);
+  galid = ivector(1,10000000);
 
   fp=openfile(Files.HaloFile);
+  fdelta = openfile("input/halo_env_density.dat");
+
   sprintf(aa,"%s.mock",Task.root_filename);      
   fp2 = fopen(aa,"w");
   sprintf(aa,"%s.mock_halo",Task.root_filename);      
@@ -120,15 +148,8 @@ void populate_simulation_hod()
   for(i=0;i<1000;++i)
     galcnt[i]=0;
 
-  if(iflag)
-    {
-      FP1 = fp;
-      mmin_from_file();
-    }
-  else
-    {
-      set_HOD_params();
-    }
+  set_HOD_params();
+  HOD.M_min_0 = HOD.M_min;
   mlo = HOD.M_low;
   printf("MLO %e %e %f\n",mlo,HOD.M_min,HOD.sigma_logM);
   printf("BOX_SIZE %f\n",BOX_SIZE);
@@ -136,58 +157,127 @@ void populate_simulation_hod()
 
   haloid = 0;
 
-  while(!feof(fp))
+  
+  /* DENSITY CALC!!
+   * calculate the number density now by looping over the halos and 
+   * imparting some density dependence on the hod
+   */
+  // step 1: read the halo file into memory (completely)
+  // step 2: read the density file into memory
+  // loop over halo mass.
+
+  // HOD functions
+  // N_cen(mass)
+  // N_sat(mass)
+
+  // for i in all halos
+  // ntot += N_cen(masss[i]) + N_sat(mas[i])
+
+  nhalos_glob_pop = filesize(fp);
+  nhalos = nhalos_glob_pop;
+  xhs = vector(0, nhalos - 1);
+  yhs = vector(0, nhalos - 1);
+  zhs = vector(0, nhalos - 1);
+  vxhs = vector(0, nhalos - 1);
+  vyhs = vector(0, nhalos - 1);
+  vzhs = vector(0, nhalos - 1);
+
+  mass_glob_pop = vector(0, nhalos - 1);
+  delta_glob_pop = vector(0, nhalos - 1);
+
+  for(i = 0; i < nhalos; ++i)
     {
-      if(SO_FILE)
-	{
-	  fscanf(fp,"%f %lf %f %f %f %f %f %f %f %f",
-		 &x1,&mass,&x1,&x1,&xh[0],&xh[1],&xh[2],&vh[0],&vh[1],&vh[2]);
-	  //fscanf(fp,"%d %lf %f %f %f %f %f %f %f %f",
-	  //	 &i,&mass,&x1,&x1,&xh[0],&xh[1],&xh[2],&vh[0],&vh[1],&vh[2]);
-	  fgets(aa,1000,fp);
-	  /*
-	  fac=sqrt(4.499E-48)*pow(4*DELTA_HALO*PI*OMEGA_M*RHO_CRIT/3,1.0/6.0)*3.09E19;
-	  sigv=fac*pow(mass,1.0/3.0)/sqrt(2.0);
-	  printf("%e %e %f\n",mass,sigv,VBIAS);
-	  if(i==2)
-	    one_halo(1,1);	    
-	  */
-	  //haloid = i;
-	}
-      else
-	{
-	  fscanf(fp,"%d %d %e %e %e %e %e %e %e",
-		 &i,&imass,&xh[0],&xh[1],&xh[2],&x1,&vh[0],&vh[1],&vh[2]);
-	  mass=imass*RHO_CRIT*OMEGA_M*pow(RESOLUTION,3.0);
-	}
+      fscanf(fp,"%f %f %f %f %f %f %f %f %f %f",
+             &x1, &mass_glob_pop[i], &x1, &x1, &xhs[i], &yhs[i], &zhs[i], &vxhs[i], &vyhs[i], &vzhs[i]);
+      fgets(aa,1000,fp);
+
+      fscanf(fdelta,"%f", &delta_glob_pop[i]);
+      fgets(aa,1000,fdelta);
+    }
+  fclose(fp);
+  fclose(fdelta);
+
+  for (i = 0; i < nhalos_glob_pop; ++i)
+    {
+      mass = mass_glob_pop[i];
+      if(mass > HOD.M_max) continue;
+      if(mass < HOD.M_low) continue;
+
+      ncen=N_cen(mass);
+      box_n_glob_pop += ncen;
+      nsat = N_sat(mass);
+      box_n_glob_pop += nsat;
+    }
+
+  box_n_glob_pop /= (BOX_SIZE*BOX_SIZE*BOX_SIZE);
+
+  find_norm(-70.0);
+  find_norm(-60.0);
+  find_norm(-50.0);
+  find_norm(-40.0);
+  find_norm(-30.0);
+  find_norm(-25.0);
+  find_norm(-20.0);
+  find_norm(-15.0);
+  find_norm(-10.0);
+  find_norm(-5.0);
+  find_norm(0.0);
+  find_norm(5.0);
+  find_norm(10.0);
+  find_norm(15.0);
+  find_norm(20.0);
+
+
+  exit(0);
+
+  // normalise this delta dependence
+  rootnorm = zbrent(find_norm, 0.1, 25.0, 0.0001);
+  fp = fopen("output/delta_func.params", "w");
+  fprintf(fp, "SLOPE:\t%f\nINTERCEPT:\t%f\n", slope_glob_pop, rootnorm);
+  fclose(fp);
+
+  for(ii = 0; ii < nhalos; ++ii)
+    {
       haloid++; //in case it's not iterated in the file
-      //fmuh(mass);
-      if(mass>HOD.M_max)continue;
 
-      if(WARREN_MASS_CORRECTION)
-	mass = imass*(1-pow(imass,-0.6))*RHO_CRIT*OMEGA_M*pow(RESOLUTION,3.0);
+      mass = mass_glob_pop[ii];
+      xh[0] = xhs[ii];
+      xh[1] = yhs[ii];
+      xh[2] = zhs[ii];
+      vh[0] = vxhs[ii];
+      vh[1] = vyhs[ii];
+      vh[2] = vzhs[ii];
 
+      if(mass > HOD.M_max) continue;
 
-      if(mass<mlo)continue;
+      if(mass < mlo) continue;
 
-      for(i=0;i<3;++i)
-	{
-	  if(xh[i]<0)xh[i]+=BOX_SIZE;
-	  if(xh[i]>BOX_SIZE)xh[i]-=BOX_SIZE;
-	}
+      for (i = 0; i < 3; ++i)
+        {
+
+          if(xh[i]<0)xh[i]+=BOX_SIZE;
+          if(xh[i]>BOX_SIZE)xh[i]-=BOX_SIZE;
+        }
 
       i1 = (int)(log10(mass)/0.1);
       halocnt[i1]++;	  
+
+      HOD.delta = delta_glob_pop[ii];
+//      HOD.M_min = M_min_delta(mass, delta[i]);
+      M_min_delta(mass, delta_glob_pop[ii], rootnorm);
+
       ncen=N_cen(mass);
+      ngals += ncen;
+
       if(drand48()>ncen)goto SATELLITES;
+
       if(VBIAS_C>0)
 	{
 	  NFW_central_velocity(mass,vg,mag);
 	  for(i=0;i<3;++i)
 	    vh[i]+=vg[i];
 	}
-      fprintf(fp2,"%e %e %e %e %e %e %d %e\n",
-	      xh[0],xh[1],xh[2],vh[0],vh[1],vh[2],0,mass);
+      fprintf(fp2,"%e %e %e %e %e %e\n",xh[0],xh[1],xh[2],vh[0],vh[1],vh[2]);
       fprintf(fpt,"%d\n",haloid);
  
       // THis mocks up the ~22 columns of the MR mocks
@@ -200,6 +290,10 @@ void populate_simulation_hod()
 	    vh[i]-=vg[i];
 	}
       
+
+      //muh(i);
+      //fmuh(ncen);
+      //fmuh(mass);
       galcnt[i1]++;
 
       if(TRACK_GALAXIES)
@@ -228,6 +322,8 @@ void populate_simulation_hod()
 
     SATELLITES:
       nsat = N_sat(mass);
+      ngals += nsat;
+
       if(nsat>250)
 	n1 = gasdev(&IDUM3)*sqrt(nsat) + nsat;
       else
@@ -256,8 +352,7 @@ void populate_simulation_hod()
 		vg[k] = non_gaussian_velocity();
 	      */
 	    }	
-	  fprintf(fp2,"%e %e %e %e %e %e %d %e\n",
-		  xg[0],xg[1],xg[2],vg[0],vg[1],vg[2],1,mass);
+	  fprintf(fp2,"%e %e %e %e %e %e\n",xg[0],xg[1],xg[2],vg[0],vg[1],vg[2]);
 	  fprintf(fpt,"%d\n",haloid);
 
 	  //	  fprintf(fpt,"%d %d %d %e %e %e 0.0 0.0 0.0 %e %e %e 0.0 0.0 0.0 0.0 0.0 0.0 %e 0.0 0.0\n",1,1,1,xg[0],xg[1],xg[2],vg[0],vg[1],vg[2],log10(mass));
@@ -278,11 +373,13 @@ void populate_simulation_hod()
 	   */
 	  galcnt[i1]++;	  
 	}
-      
-      if(feof(fp))break;
     }
   fclose(fp2);
   fclose(fpt);
+
+  fprintf(stdout,"GALAXY_DENSITY:\t%e\nREAL DENSITY:\t%e\n",GALAXY_DENSITY, ngals/(BOX_SIZE*BOX_SIZE*BOX_SIZE));
+
+  /* end ehere */
 
   /* output the binned HOD
    */
@@ -293,6 +390,8 @@ void populate_simulation_hod()
       fprintf(fp2,"%d %f %f %d %d\n",
 	      i,(i+0.5)*0.1,(float)galcnt[i]/halocnt[i],galcnt[i],halocnt[i]);
   fclose(fp2);
+
+  exit(0);
 
   /* Calculate the two-halo term
    */
@@ -348,188 +447,3 @@ void populate_simulation_hod()
   exit(0);
 }
 
-
-
-
-/* This is the two-halo term.
- */
-void calc_nbody_two_halo(float **gal, int *id, int ngal)
-{
-  float rmax,rmin,lrstep,binfac,rcube,weight0,fac,rlow,density,weightrandom,vol,r;
-  int ibin,kbin,nbin,i,j,k,*binlookup,*npair,ngal_temp;
-
-  float *rupp,*rsqr,reduction_factor,*vxt,*vyt,*vzt;
-  int *meshparts, ***meshstart,nmesh,meshfac,nbrmax,*indx;
-  double *rbar,galden;
-
-  float *xg,*yg,*zg,*xt,*yt,*zt;
-
-  static float *rad, *xi;
-  static int nr, flag = 0;
-
-  char fname[100];
-  FILE *fp;
-
-  sprintf(fname,"%s.nbody_2halo",Task.root_filename);
-  fp = fopen(fname,"w");
-
-  rmax = 10;
-  rmin = 0.1;
-  nbin = nr = 20;
-
-  rad = vector(1,nr);
-  xi = vector(1,nr);
-  g21_rad = dvector(1,nr);
-  g21_xi = dvector(1,nr);
-  g21_nrad = nr;
-
-  xg = malloc(ngal*sizeof(float));
-  yg = malloc(ngal*sizeof(float));
-  zg = malloc(ngal*sizeof(float));
-
-  ngal_temp=0;
-  for(i=1;i<=ngal;++i)
-    {
-      xg[ngal_temp] = gal[i][0];
-      yg[ngal_temp] = gal[i][1];
-      zg[ngal_temp] = gal[i][2];
-      ngal_temp++;
-    }
-  ngal = ngal_temp;
-
-  indx=malloc(ngal*sizeof(int));
-  rsqr=malloc(ngal*sizeof(float));
-
-  /*********************** 
-   * initializing the logarithmic bins 
-   */  
-  rupp = (float *) calloc(nbin+1,sizeof(float)) ;
-  lrstep=log(rmax/rmin)/(float)(nbin-1) ;
-  binlookup=(int *)calloc(NBINLOOKUP+2,sizeof(int)) ;
-  ibin=0 ;
-  for (i=0;i<=NBINLOOKUP;i++)  {
-    r=rmax*i/NBINLOOKUP ;
-    if (r>0)  {
-      kbin=(int)floor(log(r/rmin)/lrstep+1.0) ;
-    }
-    else {
-      kbin=0 ;
-    }
-    if (kbin<0) kbin=0 ;
-    if (kbin>ibin)  {
-      rupp[ibin]=r ;
-      ibin=kbin ;
-    }
-    binlookup[i]=kbin ;
-  }
-  binlookup[NBINLOOKUP+1]=nbin ;
-  rupp[nbin-1]=rmax ;
-  rupp[nbin]=rmax ;
-  binfac=NBINLOOKUP/rmax ;
-
-  rbar=calloc(nbin,sizeof(double));
-  npair=calloc(nbin,sizeof(int));
-
-  rcube = BOX_SIZE;
-
-  nmesh=0;
-  meshlink2(ngal,&nmesh,0.0,rcube,rmax,xg,yg,zg,&meshparts,&meshstart,meshfac);
-
-
-  for(i=0;i<ngal;++i)
-    {
-
-      nbrmax=ngal;
-      nbrsfind2(0.0,rcube,rmax,nmesh,xg[i],yg[i],zg[i],&nbrmax,indx,rsqr,xg,yg,zg,
-		meshparts,meshstart,i);
-      for(j=0;j<nbrmax;++j)
-	{
-	  k = indx[j];
-
-	  // if gals in same halo, skip
-	  if(id[i+1]==id[k+1])continue;
-
-	  r=sqrt(rsqr[j]) ;
-	  kbin=binlookup[(int)(binfac*r)] ;
-	  if(kbin>=nbin)continue;
-	  npair[kbin]++;
-	  rbar[kbin]+=r;
-	}
-    }
-
-  density=ngal/(rcube*rcube*rcube) ;
-
-  rlow=0;
-  for (kbin=0;kbin<nbin;kbin++)  {
-    weight0=(float) npair[kbin];
-    
-    if (weight0>0.0)  {
-      fac=1./weight0 ;
-      rbar[kbin] *= fac ;
-    }
-    else  {					/* avoid errors in empty bins */
-      rbar[kbin]=(rupp[kbin]+rlow)*0.5;
-    }
-    
-    /* compute xi, dividing summed weight by that expected for a random set */
-    vol=4.*PI/3.*(rupp[kbin]*rupp[kbin]*rupp[kbin]-rlow*rlow*rlow) ;
-    weightrandom=ngal*density*vol ;
-    
-    g21_rad[kbin+1] = rad[kbin+1]=log(rbar[kbin]);
-    g21_xi[kbin+1] = xi[kbin+1]=weight0/weightrandom-1 ;
-    rlow=rupp[kbin] ;    
-
-    fprintf(fp,"%e %e %.0f\n",rbar[kbin],xi[kbin+1],weight0);
-
-    if(OUTPUT>1)
-      {
-	fprintf(stdout,"nbody_xi> %f %f %.0f\n",rbar[kbin],xi[kbin+1],weight0);
-	fflush(stdout);
-      }
-  }
-  fclose(fp);
-
-  free(indx);
-  free(rsqr);
-  free(rupp);
-  free(binlookup);
-  free(npair);
-  free(rbar);
-
-  free_i3tensor(meshstart,0,nmesh-1,0,nmesh-1,0,nmesh-1);
-} 
-
-
-void mmin_from_file()
-{
-  double m;
-  fprintf(stdout,"top of mmin from file\n");
-  m = zbrent(func1_mmin_from_file,log(1.0E+7), log(1.0E+15), 1.0E-4);
-  HOD.M_min = exp(m);
-  fprintf(stdout,"FILE MMIN: %e\n",HOD.M_min);
-}
-
-double func1_mmin_from_file(double m)
-{
-  float x1, xh[3], vh[3];
-  double mass;
-  double ntot = 0;
-  char aa[1000];
-  int i, imass;
-  
-  HOD.M_min = exp(m);
-  HOD.M_low = set_low_mass();
-
-  while(!feof(FP1))
-    {
-      fscanf(FP1,"%d %d",&i,&imass);
-      mass = imass*RHO_CRIT*OMEGA_M*pow(RESOLUTION,3.0);
-      fgets(aa,1000,FP1);
-      ntot += N_avg(mass);
-    }
-  rewind(FP1);
-  ntot/= (BOX_SIZE*BOX_SIZE*BOX_SIZE);
-  printf("%e %e %e\n",HOD.M_min,ntot,GALAXY_DENSITY);
-  return ntot-GALAXY_DENSITY;
-
-}

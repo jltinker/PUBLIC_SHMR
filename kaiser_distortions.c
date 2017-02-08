@@ -5,7 +5,8 @@
 
 /* Local variables for the coordinate in redshift space.
  */
-double rs_g8,rp_g8;
+double rs_g8,rp_g8,
+  iorder_k1, r_k1;
 
 /* Internal functions.
  */
@@ -19,6 +20,10 @@ double f_xi2bar(double r);
 double xi_harmonic(double r, int i);
 double scale_dependent_dispersion(double r);
 double scale_dependent_skewness(double r);
+double func_xip(double k);
+double xi_p(double r, int iorder);
+double func1k(double k);
+double xi_harmonic_pk(double r, int i);
 
 void initial_dispersion_model_values(double *a, double **pp, double *yy);
 void dispersion_model_input(void);
@@ -200,46 +205,63 @@ double chi2_dispersion_model(double *a)
   return(chi2);
 }
 
+
+
+/*************************************************************
+ * This is the function called in place of the full 2HALO term
+ *************************************************************/
+
 double kaiser_distortion(double rs, double rp)
 {
-  double s1,rlim=60,rr;
+  double s1,rlim=100,rr;
   static int prev=-1;
-
-  if(prev==-1 || prev!=RESET_COSMOLOGY)
-    {
-      prev=RESET_COSMOLOGY;
-      /*
-      BETA = pow(OMEGA_M,0.6)/qromo(func_galaxy_bias,HOD.M_low,HOD.M_max,midpnt)*
-	GALAXY_DENSITY;
-      */
-      printf("kaiser> BETA= %f SIGV= %f\n",BETA,SIGV);
-    }
 
   rs_g8=rs;
   rp_g8=rp;
   rr=sqrt(rs*rs+rp*rp);
-  /* if(rr*1.5>10)rlim=rr*5.5; */
-  /* s1=qromo(func_kaiser,-rlim,rlim,midpnt); */
-  s1=qtrap(func_kaiser,-rlim,rlim,1.0E-3); 
+  rlim = 20*SIGV/(100.0*HUBBLEZ); // go out 4 sigma around location
+  s1=qtrap(func_kaiser,-rlim,rlim,1.0E-5); 
   return(s1-1);
 }
 
 double linear_kaiser_distortion(double r, double z)
 {
-  double mu;
+  double mu, x;
 
   mu= sqrt(1 - z/r*z/r);
   mu = z/r;
-  return xi_prime(r,mu);
+  x = xi_prime(r,mu);
+  if(x<-1)return -1;
+  return x;
 }
 
 double func_kaiser(double z)
 {
   double r,mu,v,x,sigv;
 
+  // new version
+  r=sqrt((z+rp_g8)*(z+rp_g8)+rs_g8*rs_g8);
+  mu=(z+rp_g8)/r;
+  v=z*100.0*HUBBLEZ;
+
+  sigv = SIGV*pow(OMEGA_M/0.3,GAMMA)*(SIGMA_8/0.76);
+  // NB! tryingt to shift the dispersion by scale
+  //sigv = scale_dependent_dispersion(r)*pow(OMEGA_M/0.3,GAMMA)*(SIGMA_8/0.76);
+  x=(1+xi_prime(r,mu))*exp(-ROOT2*fabs(v)/sigv)/ROOT2/sigv*100.0*HUBBLEZ;
+  return x;
+
+
+  // original version
   r=sqrt(z*z+rs_g8*rs_g8);
   mu=z/r;
-  v=(rp_g8-z)*100.0*HUBBLEZ/(1+REDSHIFT);
+  v=(rp_g8-z)*100.0*HUBBLEZ;
+
+  sigv = SIGV;
+  x=(1+xi_prime(r,mu))*exp(-ROOT2*fabs(v)/sigv)/ROOT2/sigv*100.0*HUBBLEZ;
+  return x;
+
+
+
 
   sigv = scale_dependent_dispersion(r);
   /*
@@ -250,7 +272,7 @@ double func_kaiser(double z)
   x=(1+one_halo_real_space(r)+two_halo_real_space(r))*
     exp(-ROOT2*fabs(v)/sigv)/ROOT2/sigv*100.0;
   */
-  x=(1+xi_prime(r,mu)+one_halo_real_space(r))*exp(-ROOT2*fabs(v)/sigv)/ROOT2/sigv*100.0;
+  x=(1+xi_prime(r,mu)+one_halo_real_space(r))*exp(-ROOT2*fabs(v)/sigv)/ROOT2/sigv*100.0*HUBBLEZ;
   return(x);
 }
 double scale_dependent_skewness(double r)
@@ -264,6 +286,8 @@ double scale_dependent_dispersion(double r)
   static double *z,*x,*y;
   double a;
   int i;
+
+  return SIGV*(-0.5*log(r/10+1)+(1+0.5*log(2)));
 
   if(niter!=niter_g8)
     {
@@ -315,14 +339,15 @@ double xi_bar(double r)
 	}
       flag=1;
       rmin=-1.9;
-      rmin=log10(R_MIN_2HALO);
-      rmax=log10(80.0);
+      if(R_MIN_2HALO>0)
+	rmin=log10(R_MIN_2HALO);
+      rmax=log10(R_MAX_2HALO);
       for(i=1;i<=n;++i)
 	{
 	  lgr=(rmax-rmin)*(i-1.0)/(n-1.0)+rmin;
 	  x[i]=pow(10.0,lgr);
 	  y[i]=qtrap(f_xibar,0.0,x[i],1.0E-4)*3/(x[i]*x[i]*x[i]);
-	  //printf("XIBAR %f %e\n",x[i],y[i]);
+	  //printf("XIBAR %f %e %f\n",x[i],y[i]);
 	}
       spline(x,y,n,1.0E30,1.0E30,y2);
     }
@@ -336,7 +361,8 @@ double xi_bar(double r)
 double f_xibar(double r)
 {
   double x;
-  x=two_halo_real_space(r);
+  x = xi_t(r);
+  //x=two_halo_real_space(r);
   /* x=one_halo_real_space(r)+two_halo_real_space(r); */
   return(x*r*r);
 }
@@ -367,8 +393,9 @@ double xi_2bar(double r)
 	}
       flag=1;
       rmin=-1.9;
-      rmin = log10(R_MIN_2HALO);
-      rmax=log10(80.0);
+      if(R_MIN_2HALO>0)
+	rmin = log10(R_MIN_2HALO);
+      rmax=log10(R_MAX_2HALO);
       for(i=1;i<=n;++i)
 	{
 	  lgr=(rmax-rmin)*(i-1.0)/(n-1.0)+rmin;
@@ -388,7 +415,8 @@ double xi_2bar(double r)
 double f_xi2bar(double r)
 {
   double x;
-  x=two_halo_real_space(r);
+  x = xi_t(r);
+  //x=two_halo_real_space(r);
   /* x=one_halo_real_space(r)+two_halo_real_space(r); */
   return(x*r*r*r*r);
 }
@@ -419,9 +447,15 @@ double xi_harmonic(double r, int i)
 double xi_prime(double r, double mu)
 {
   double x0,x2,x4;
+  
   x0=xi_harmonic(r,0)*Lpoly(mu,0);
   x2=xi_harmonic(r,2)*Lpoly(mu,2);
   x4=xi_harmonic(r,4)*Lpoly(mu,4);
+  /*
+  x0=xi_harmonic_pk(r,0)*Lpoly(mu,0);
+  x2=xi_harmonic_pk(r,2)*Lpoly(mu,2);
+  x4=xi_harmonic_pk(r,4)*Lpoly(mu,4);
+  */
   return(x0+x2+x4);
 }
 
@@ -430,3 +464,5 @@ double xi_t(double r)
   return(two_halo_real_space(r));
   return(one_halo_real_space(r)+two_halo_real_space(r));
 }
+
+

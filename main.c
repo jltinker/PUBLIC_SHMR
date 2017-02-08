@@ -16,7 +16,8 @@ double find_maximum_halo_mass(void);
 
 int main(int argc, char **argv)
 {
-  double s1, delta_vir, omega_m, x;
+  double s1, delta_vir, omega_m, x, a1, a2, d1, d2, f, rd0, rdfid, da0, dafid, omega_temp, hz0, hzfid, alpha_par, alpha_per,
+    ombhh, omchh;
   int i, j;
   FILE *fp;
 
@@ -55,18 +56,6 @@ int main(int argc, char **argv)
 
   read_parameter_file(argv[1]);
 
-  if(REDSHIFT>0)
-    {
-      SIGMA_8 = SIGMA_8*growthfactor(REDSHIFT);
-      HUBBLEZ = sqrt(OMEGA_M*pow(1+REDSHIFT,3.0)+1-OMEGA_M);
-      OMEGA_Z = OMEGA_M*pow(1+REDSHIFT,3.0)/(OMEGA_M*pow(1+REDSHIFT,3.0)+(1-OMEGA_M));
-      fprintf(stdout,"SIGMA_8(Z=%.3f)= %.4f\n",REDSHIFT,SIGMA_8);
-      fprintf(stdout,"H(Z=%.3f)/H0= %.4f\n",REDSHIFT,HUBBLEZ);
-      HOD.M_min = 0;
-      RESET_COSMOLOGY++;
-      set_HOD_params();
-    }
-
   /* Output the virial overdensity for reference.
    */
   if(OUTPUT)
@@ -75,6 +64,40 @@ int main(int argc, char **argv)
       x=omega_m-1;
       delta_vir=(18*PI*PI+82*x-39*x*x)/(1+x);
       printf("DELTA_VIR(Omega_m,z) = %f\n",delta_vir);
+      // calculate f
+      a1 = 1/(REDSHIFT+1)*0.99;
+      d1 = growthfactor(1/a1-1);
+      a2 = 1/(REDSHIFT+1)*1.01;
+      d2 = growthfactor(1/a2-1);
+      f = log(d2/d1)/log(a2/a1);
+      printf("f(z)= %f, fsigma8= %f check=%f\n",f,f*SIGMA_8,pow(omega_m,0.55));
+      // now get H(z) and alpha_per
+      hz0 = 100*HUBBLE*sqrt(OMEGA_M*pow(1+REDSHIFT,3.0)+(1-OMEGA_M));
+      // get H(z) in fiducial cosmology
+      hzfid = 67.6*sqrt(0.31*pow(1+REDSHIFT,3.0) + (1-OMEGA_M));
+      // get r_d using fitting function in Aardwolf
+      omchh = 0.31*0.676*0.676-0.022;
+      ombhh = 0.022;      
+      rdfid = 55.234/pow(omchh+ombhh,0.2538)/pow(ombhh,0.1278);
+      ombhh = OMEGA_B*HUBBLE*HUBBLE;      
+      omchh = OMEGA_M*HUBBLE*HUBBLE- ombhh;
+      rd0 = 55.234/pow(omchh+ombhh,0.2538)/pow(ombhh,0.1278);
+      alpha_par = hzfid/hz0;
+      omega_temp = OMEGA_M;
+      OMEGA_M = 0.31;
+      dafid = distance_redshift(REDSHIFT)/0.676/(1+REDSHIFT);
+      OMEGA_M = omega_temp;
+      da0 = distance_redshift(REDSHIFT)/HUBBLE/(1+REDSHIFT);
+      alpha_per = da0/dafid;
+      printf("alpha_par= %f alpha_per= %f\n",alpha_par,alpha_per);
+      printf("rd0/rdfid = %f\n",rd0/rdfid);
+      printf("Da0= %f, rdfid= %f rd0= %f\n", da0, rdfid, rd0);
+      printf("Hrs_0= %f\n", hz0*rd0);
+      printf("Da0/rs0= %f\n",da0/rd0);
+      printf("Hrs_fid= %f\n", hzfid*rdfid);
+      printf("Dafid/rsfid= %f\n",dafid/rdfid);
+      printf("Hfid*rdfid^2/rd0 = %f\n",hzfid*rdfid*rdfid/rd0);
+      printf("rdfid^2/rd0/dafid = %f\n",rdfid*rdfid/rd0/dafid);
     }
 
   /* Do some initialization if we're doing SHMR
@@ -85,13 +108,14 @@ int main(int argc, char **argv)
       if(VARIABLE_ALPHA)SHMR_PARAMS += 2;
       if(VARIABLE_EXCLUSION)wpl.a[SHMR_PARAMS+1] = EXCLUSION_RADIUS;
       wpl.ncf = SHMR_PARAMS + VARIABLE_EXCLUSION;
+      if(COLOR)wpl.ncf = SHMR_PARAMS*2 + 5;
 
       HOD.pdfs = 100;      
       HOD.pdfc = 101;
       wpx.calculate_two_halo = 1;
       input_stellar_mass_bins();
       // if we have input from the prompt, take that
-      if(argc>2 && atoi(argv[2])!=999)
+      if(argc>2 && atoi(argv[2])!=999 && !Task.MCMC)
 	{
 	  fp = openfile(argv[2]);
 	  fscanf(fp,"%d %d",&i,&j);
@@ -109,10 +133,6 @@ int main(int argc, char **argv)
   if(argc>2)
     IDUM_MCMC=atoi(argv[2]);
   SIGMA_8Z0 = 0.8;
-
-  if(argc>2)
-    if(atoi(argv[2])==999)
-      test(argc,argv);
 
   /* If there's no cross-correlation function,
    * set the second number density equal to the first
@@ -159,9 +179,15 @@ int main(int argc, char **argv)
 
   /* Set up BETA for wp integration.
    */
-  BETA = pow(OMEGA_M,0.6)/GALAXY_BIAS;
+  OMEGA_Z = OMEGA_M*(1+REDSHIFT)*(1+REDSHIFT)*(1+REDSHIFT)/(OMEGA_M*(1+REDSHIFT)*(1+REDSHIFT)*(1+REDSHIFT)+(1-OMEGA_M));
+  BETA = pow(OMEGA_Z,GAMMA)/GALAXY_BIAS;
   if(OUTPUT)
     printf("BETA = %f\n",BETA);
+
+  if(argc>2)
+    if(atoi(argv[2])==999)
+      test(argc,argv);
+
 
  TASKS:
   tasks(argc,argv);

@@ -13,14 +13,29 @@
  */
 void wp_input(void);
 double mcmc_initialize(double *a, double **cov1, double *avg1, double *start_dev);
+double chi2rsd(double *a);
+double chi2rsdq(double *a);
+
+
+double chi2rsd(double *a)
+{
+  return 1;
+}
+double chi2rsdq(double *a)
+{
+  return 1;
+}
 
 /* Internal functions.
  */
 double chi2_wp_wrapper(double *a);
 void mcmc_restart2(double *start_dev, int np);
 int mcmc_restart3(double **chain, int n, double *chi2_prev, int *iweight);
+void qp_input_mcmc();
+void output_mcmc_quants(int);
 
 int USE_IWEIGHT = 0;
+double omz0, s8z0, sigv0;
 
 /**************************************
  * 
@@ -63,8 +78,10 @@ int USE_IWEIGHT = 0;
  */
 void mcmc_minimization()
 {
+  FILE *fpmc;
+  char fname[1000];
   double stepfac=1;
-  double error=1,tolerance=0,**cov1,**tmp,*a,*avg1,chi2,chi2prev,
+  double error=1,tolerance=0,**cov1,**tmp,*a,*avg1,chi2,chi2prev,xbias,
     **evect,*eval,*aprev,*atemp,**tmp1,*opar,x1,fsat,**chain,*start_dev,*eval_prev;
   int n,i,j,k,nrot,niter=0,count=0,imax_chain=100000,NSTEP=50,NSTEP_MAX=10000,convergence=0;
   long IDUM=-555;
@@ -72,20 +89,30 @@ void mcmc_minimization()
   int *pcheck,pcnt,ptot=20,firstflag=1,*iweight,total_weight;
   double t0,tprev,temp,chi2a,chi2b;
 
+
+  N_HOD_PARAMS = 9;
+  sigv0 = SIGV;
+  omz0 = OMEGA_M*pow(1+REDSHIFT,3.0)/(OMEGA_M*pow(1+REDSHIFT,3.0)+(1-OMEGA_M));
+  s8z0 = SIGMA_8;
+
   opar=dvector(1,100);
 
   MCMC=Task.MCMC;
+  if(ARGC>2)
+    IDUM = -1*atoi(ARGV[2]);
+  printf("IDUM= %d %d\n",(int)IDUM, MCMC);
 
   pcheck=calloc(ptot,sizeof(int));
 
-  if(MCMC>1 && !COVAR)
-    wp.esys=0.05;
-
-  if(!ThisTask)printf("ESYS %f %d\n",wp.esys,MCMC);
   wp_input();
-
+  if(MCMC>2)qp_input_mcmc();
+  
   Work.imodel=2;
   Work.chi2=1;
+
+  sprintf(fname,"%s.MCMC_%d", Task.root_filename, abs(IDUM));
+  fprintf(stderr,"mcmc> output filename= [%s]\n",fname);
+  fpmc = fopen(fname,"w");
 
   /*
   OUTPUT=0;
@@ -133,8 +160,6 @@ void mcmc_minimization()
   for(i=1;i<=imax_chain;++i)
     iweight[i] = 0;
 
-  IDUM=IDUM_MCMC;
-
   if(RESTART)
     {
       niter = mcmc_restart3(chain,n,&chi2prev,iweight);
@@ -165,22 +190,22 @@ void mcmc_minimization()
       mcmc_restart2(start_dev,n);
     }
 
-  stepfac=1;
+  stepfac=wpl.stepfac_burn;
+  if(wpl.stepfac_burn>0)stepfac = wpl.stepfac_burn;
   while(niter<NSTEP)
     {
       pcnt++;
       if(pcnt==ptot)
 	{
 	  for(j=i=0;i<ptot;++i)j+=pcheck[i];
-	  stepfac = stepfac*pow(0.9,5-j);
+	  //stepfac = stepfac*pow(0.9,5-j);
 	  if(!ThisTask)printf("STEPFAC %f %d %d\n",stepfac,j,count);
 	  pcnt=0;
 	}
-      /* stepfac=0.7; */
+      
       for(i=1;i<=n;++i)
 	a[i] = (1+gasdev(&IDUM)*start_dev[i]*stepfac)*aprev[i];
 
-      
       if(MCMC>1)
 	{
 	  RESET_COSMOLOGY++;
@@ -188,19 +213,18 @@ void mcmc_minimization()
 	  for(i=1;i<=N_HOD_PARAMS;++i)if(HOD.free[i])j++;
 	  i=N_HOD_PARAMS;
 	  if(HOD.free[++i])OMEGA_M = a[++j];
-	  if(HOD.free[++i])SIGMA_8 = a[++j];
+	  if(HOD.free[++i])SIGMA_8Z0 = a[++j];
 	  if(HOD.free[++i])VBIAS   = a[++j];
 	  if(HOD.free[++i])VBIAS_C = a[++j];
 	  if(HOD.free[++i])GAMMA   = a[++j];
 	  if(HOD.free[++i])SPECTRAL_INDX   = a[++j];
-	  /* if(HOD.free[++i])SIGV    = a[++j]; */
+	  if(HOD.free[++i])HUBBLE   = a[++j];
+	  if(HOD.free[++i])OMEGA_B   = a[++j];
+	  SIGMA_8 = SIGMA_8Z0*growthfactor(REDSHIFT);
+	  fmuh(SIGMA_8);
+	  dndM_interp(1.0E+13);
 	}
       if(VBIAS_C<0)continue;
-
-      /* Hard-wire CVIR variation
-       */
-      if(HOD.free[6])
-	CVIR_FAC = a[3];
 
       /* Draw random value of cvir from prior.
        */
@@ -214,7 +238,7 @@ void mcmc_minimization()
 	printf("TRY %d ",++count);
 	for(i=1;i<=n;++i)
 	  printf("%.4e ",a[i]);
-	printf("%e\n",chi2);fflush(stdout);
+	printf("%e\n",chi2);fflush(fpmc);
       }
 
       pcheck[pcnt]=1;
@@ -252,11 +276,15 @@ void mcmc_minimization()
 	  cov1[i][j] += a[i]*a[j];
       chi2prev=chi2;
 
+      // output the stats
+      //output_mcmc_quants(niter);
       if(!ThisTask){
-	printf("ACCEPT %d %d ",niter,count);
+	xbias = qromo(func_galaxy_bias,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY;
+	fsat = qromo(func_satfrac,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY;
+	fprintf(fpmc, "%d %d ",niter,count);
 	for(i=1;i<=n;++i)
-	  printf("%e ",a[i]);
-	printf("%e\n",chi2);fflush(stdout);
+	  fprintf(fpmc,"%e ",a[i]);
+	fprintf(fpmc,"%e %e %e %e\n",chi2, HOD.M_min, fsat, xbias);fflush(fpmc);
 	printf("HSTATS %d %e %e %e %e\n",niter,HOD.M_min,number_weighted_halo_mass(),
 	       number_weighted_central_mass(),
 	       qromo(func_satellite_density,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY);
@@ -290,6 +318,7 @@ void mcmc_minimization()
 	  pcnt=0;
 	}
       stepfac=1.6/sqrt(n);
+      if(wpl.stepfac>=0)stepfac = wpl.stepfac;
       //stepfac = 0;
 
       if(convergence)goto SKIP_MATRIX;
@@ -379,30 +408,19 @@ void mcmc_minimization()
 	  for(i=1;i<=N_HOD_PARAMS;++i)if(HOD.free[i])j++;
 	  i=N_HOD_PARAMS;
 	  if(HOD.free[++i])OMEGA_M = a[++j];
-	  if(HOD.free[++i])SIGMA_8 = a[++j];
+	  if(HOD.free[++i])SIGMA_8Z0 = a[++j];
 	  if(HOD.free[++i])VBIAS   = a[++j];
 	  if(HOD.free[++i])VBIAS_C = a[++j];
 	  if(HOD.free[++i])GAMMA   = a[++j];
 	  if(HOD.free[++i])SPECTRAL_INDX   = a[++j];
-	  /* if(HOD.free[++i])SIGV    = a[++j]; */
+	  if(HOD.free[++i])HUBBLE   = a[++j];
+	  if(HOD.free[++i])OMEGA_B   = a[++j];
+	  SIGMA_8 = SIGMA_8Z0*growthfactor(REDSHIFT);
+	  dndM_interp(1.0E12);
 	}
       if(VBIAS_C<0)continue;
-      
-      /* Hard-wire CVIR variation
-       */
-      if(HOD.free[6])
-	CVIR_FAC = a[3];
 
-      /* Draw random value of cvir from prior.
-       */
-      /* CVIR_FAC = a[n]; */
-      /* if(CVIR_FAC<0.3 || CVIR_FAC>1.2)continue; */
-      /* CVIR_FAC = 0.7*drand48()+0.3; */
-      /* GAMMA = gasdev(&IDUM)*0.02 + 0.15; */
-      //      printf("GAMMA %d %f %f\n",count+1,GAMMA,CVIR_FAC);
-
-      chi2a=chi2_wp_wrapper(a);
-      chi2 = chi2a+chi2b;
+      chi2 =chi2_wp_wrapper(a);
 
       if(RESTART==2)
 	chi2*=(1+exp(-count/100.0));
@@ -488,31 +506,67 @@ void mcmc_minimization()
 	  cov1[i][j] += a[i]*a[j];
       chi2prev=chi2;
 
-      if(!ThisTask) {
-	printf("ACCEPT %d %d ",niter,count);
+      //output_mcmc_quants(niter);
+
+      if(!ThisTask){
+	xbias = qromo(func_galaxy_bias,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY;
+	fsat = qromo(func_satfrac,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY;
+	fprintf(fpmc, "%d %d ",niter,count);
 	for(i=1;i<=n;++i)
-	  printf("%e ",a[i]);
-	printf("%e\n",chi2);fflush(stdout);
-	
-	if(MCMC==1)
-	  {
-	    printf("HSTATS %d %e %e %e %e\n",niter,HOD.M_min,number_weighted_halo_mass(),
-		   number_weighted_central_mass(),
-		   qromo(func_satellite_density,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY);
-	    
-	    fsat = qromo(func_satfrac,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY;
-	    printf("FSAT %d %e %e %e %e\n",niter,fsat,HOD.M_min,HOD.sigma_logM,qromo(func_galaxy_bias,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY);
-	  }
+	  fprintf(fpmc,"%e ",a[i]);
+	fprintf(fpmc,"%e %e %e %e\n",chi2, HOD.M_min, fsat, xbias);fflush(fpmc);
+	printf("HSTATS %d %e %e %e %e\n",niter,HOD.M_min,number_weighted_halo_mass(),
+	       number_weighted_central_mass(),
+	       qromo(func_satellite_density,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY);
+
+	fsat = qromo(func_satfrac,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY;
+	printf("FSAT %d %e %e %e %e\n",niter,fsat,HOD.M_min,HOD.sigma_logM,qromo(func_galaxy_bias,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY);
       }
 
     }
 }
 
+void output_mcmc_quants(int niter)
+{
+  double x1,x2,x3,x4,x5,dr,r;
+  int j;
+  FILE *fp1;
+  char fname[100];
+
+  sprintf(fname,"wp.%d",niter);
+  fp1=fopen(fname,"w");
+  dr=(log(70.0)-log(0.01))/49.0;
+  for(j=0;j<50;++j)
+    {
+      r=exp(j*dr+log(0.01));
+      x1=one_halo_real_space(r);
+      x2=two_halo_real_space(r);
+      x3=projected_xi(r);
+      x4 = projected_xi_1halo(r);
+      x5 = projected_xi_rspace(r);
+      fprintf(fp1,"%f %e %e %e %e %e %e\n",r,x1,x2,x1+x2,x3,x4,x5);
+      fflush(fp1);
+    }
+  fclose(fp1);
+
+  KAISER=1;
+  RESET_ZSPACE++;
+  RESET_KAISER++;
+  x1 = qromo(func_galaxy_bias, log(HOD.M_low), log(HOD.M_max), midpnt)/GALAXY_DENSITY;
+  BETA = pow(OMEGA_Z,GAMMA)/x1;
+  fprintf(stdout,"BETA= %f %f %f\n",BETA, OMEGA_Z, x1);
+  fflush(stdout);
+  xi_multipoles(r,&x1,&x2);
+}
+
 double chi2_wp_wrapper(double *a)
 {
-  static int flag=1;
-  static double *b;
+  static int flag=1, imcut =0;
+  static double *b, chi2, chi2b, gbias;
   int i,j;
+  double mcut, m1;
+
+  m1 = HOD.M1;
 
   if(flag)
     {
@@ -521,42 +575,60 @@ double chi2_wp_wrapper(double *a)
     }
 
   for(j=0,i=1;i<=N_HOD_PARAMS;++i) {
-    if(HOD.free[i] && i!=5) { 
-      if(a[++j]<=0) { printf("NEG %d %d %e\n",i,j,a[j]); return(1.0E7); } }
-    if(HOD.free[i] && i==5) {
+    if(HOD.free[i]) { 
+      if(a[++j]<=0) { printf("NEG %d %d %e\n",i,j,a[j]);  return(1.0E7); } }
+    if(HOD.free[i]) {
       ++j; }
   }
 
   i=0;j=0;
   if(HOD.free[++i]){j++;b[j]=pow(10.0,a[j]);} /* M_min */
-  if(HOD.free[++i]){j++;b[j]=pow(10.0,a[j]);} /* M1 */
+  if(HOD.free[++i]){j++;b[j]=pow(10.0,a[j]); m1 = b[j]; } /* M1 */
   if(HOD.free[++i]){j++;b[j]=a[j];}           /* alpha */
-  if(HOD.free[++i]){j++;b[j]=pow(10.0,a[j]);} /* M_cut */
-  if(HOD.free[++i]){j++;b[j]=pow(10.0,a[j]);} /* sigma_logM */
-  if(HOD.free[++i]){j++;b[j]=a[j];}           /* cvir_fac */
+  if(HOD.free[++i]){j++;b[j]=pow(10.0,a[j]); imcut = 1; mcut = b[j]; } /* M_cut */
+  if(HOD.free[++i]){j++;b[j]=a[j];} /* sigma_logM */
+  if(HOD.free[++i]){j++;b[j]=CVIR_FAC=a[j];}           /* cvir_fac */
   if(HOD.free[++i]){j++;b[j]=pow(10.0,a[j]);} /* MaxCen */
-  if(HOD.free[++i]){j++;b[j]=pow(10.0,a[j]);} /* M_sat_break */
-  if(HOD.free[++i]){j++;b[j]=a[j];}           /* alpha1 */
+  //if(HOD.free[++i]){j++;b[j]=pow(10.0,a[j]);} /* M_sat_break */
+  //if(HOD.free[++i]){j++;b[j]=a[j];}           /* alpha1 */
 
-  return(chi2_wp(b));
+  if(imcut && mcut/m1 < 0.0001)return 1.0E+7;
+  
+  // get the chi2 for wp
+  chi2 = chi2_wp(b);
+
+  // we've already set the cosmo parameters, now we've set the HOD params.
+  gbias = qromo(func_galaxy_bias,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY;
+  OMEGA_Z = OMEGA_M*pow(1+REDSHIFT,3.0)/(OMEGA_M*pow(1+REDSHIFT,3.0)+(1-OMEGA_M));
+  BETA = pow(OMEGA_Z,GAMMA)/gbias;
+  SIGV = sigv0*pow(OMEGA_Z/omz0,GAMMA)*(SIGMA_8Z0/s8z0);
+  printf("BETA %f bias= %f\n",BETA,gbias);
+
+  if(MCMC>2) // get the RSD chi2
+    {
+      if(MCMC==2)
+	chi2b = chi2rsd(b);
+      if(MCMC==3)
+	chi2b = chi2rsdq(b);
+    }
+  return(chi2+chi2b);
 }
 
 double mcmc_initialize(double *a, double **cov1, double *avg1, double *start_dev)
 {
-  int i,j=0;
-  double x1,x2,omega_m;
+  int i,j=0,k;
+  double x1,x2,omega_m, deltax=1.0E-3,a0[100],fisher;
   long IDUM = -556;
+  FILE *fp;
 
   omega_m = 1;
-  if(MCMC>1)
-    omega_m = OMEGA_M;
 
   i=0;j=0;
   if(HOD.free[++i]){ a[++j]=log10(HOD.M_min/omega_m);start_dev[j]=0.001; }
   if(HOD.free[++i]){ a[++j]=log10(HOD.M1/omega_m);start_dev[j]=0.001; } //.0005
   if(HOD.free[++i]){ a[++j]=HOD.alpha;start_dev[j]=0.03; } //.005
   if(HOD.free[++i]){ a[++j]=log10(HOD.M_cut/omega_m);start_dev[j]=0.01; } //.001
-  if(HOD.free[++i]){ a[++j]=log10(HOD.sigma_logM);start_dev[j]=0.01; }
+  if(HOD.free[++i]){ a[++j]=HOD.sigma_logM;start_dev[j]=0.01; }
   if(HOD.free[++i]){ a[++j]=CVIR_FAC;start_dev[j]=0.02; }
   if(HOD.pdfc==7) {
     if(HOD.free[++i])a[++j]=log10(HOD.M_cen_max/omega_m); start_dev[j]=0.001; }
@@ -568,12 +640,25 @@ double mcmc_initialize(double *a, double **cov1, double *avg1, double *start_dev
   if(MCMC>1)
     {
       if(HOD.free[++i])a[++j]=OMEGA_M;
-      if(HOD.free[++i])a[++j]=SIGMA_8;
+      if(HOD.free[++i])a[++j]=SIGMA_8Z0;
       if(HOD.free[++i])a[++j]=VBIAS;
       if(HOD.free[++i])a[++j]=VBIAS_C;
       if(HOD.free[++i])a[++j]=GAMMA;
       if(HOD.free[++i])a[++j]=SPECTRAL_INDX;
+      if(HOD.free[++i])a[++j]=HUBBLE;
+      if(HOD.free[++i])a[++j]=OMEGA_B;
     }
+  
+  if(ARGC>3)
+    {
+      fp = openfile(ARGV[3]);
+      fscanf(fp,"%d %d",&i,&j);
+      for(i=1;i<=wp.ncf;++i)
+	fscanf(fp,"%lf",&a[i]);
+      fclose(fp);
+    }
+  
+
   if(!ThisTask)
     {
       printf("INITIAL VALUES: ");
@@ -595,16 +680,47 @@ double mcmc_initialize(double *a, double **cov1, double *avg1, double *start_dev
       for(i=1;i<=N_HOD_PARAMS;++i)if(HOD.free[i])j++;
       i=N_HOD_PARAMS;
       if(HOD.free[++i]){ OMEGA_M = a[++j]; start_dev[j] = 0.01; } 
-      if(HOD.free[++i]){ SIGMA_8 = a[++j]; start_dev[j] = 0.01; } 
+      if(HOD.free[++i]){ SIGMA_8Z0 = a[++j]; start_dev[j] = 0.01; } 
       if(HOD.free[++i]){ VBIAS   = a[++j]; start_dev[j] = 0.01; } 
       if(HOD.free[++i]){ VBIAS_C = a[++j]; start_dev[j] = 0.02; } 
       if(HOD.free[++i]){ GAMMA   = a[++j]; start_dev[j] = 0.015; } 
       if(HOD.free[++i]){ SPECTRAL_INDX    = a[++j]; start_dev[j] = 0.02; }
+      if(HOD.free[++i]){ HUBBLE    = a[++j]; start_dev[j] = 0.02; }
+      if(HOD.free[++i]){ OMEGA_B    = a[++j]; start_dev[j] = 0.02; }
+      SIGMA_8 = SIGMA_8Z0*growthfactor(REDSHIFT);
     }
 
   x1=chi2_wp_wrapper(a);
   
-  x2=0;
+  // get the start dev values from the diagonal elements of the Fisher matrix
+  // get the ii chi2 values
+  for(i=1;i<=wp.ncf;++i)
+    a0[i] = a[i];
+  for(k=1;k<=-wp.ncf;++k)
+    {
+      a[k] = a0[k]*(1+deltax);
+      RESET_COSMOLOGY++;
+      j=0;
+      for(i=1;i<=N_HOD_PARAMS;++i)if(HOD.free[i])j++;
+      i=N_HOD_PARAMS;
+      if(HOD.free[++i]){ OMEGA_M = a[++j]; } 
+      if(HOD.free[++i]){ SIGMA_8Z0 = a[++j]; } 
+      if(HOD.free[++i]){ VBIAS   = a[++j];} 
+      if(HOD.free[++i]){ VBIAS_C = a[++j]; } 
+      if(HOD.free[++i]){ GAMMA   = a[++j];  } 
+      if(HOD.free[++i]){ SPECTRAL_INDX    = a[++j];  }
+      if(HOD.free[++i]){ HUBBLE    = a[++j];  }
+      if(HOD.free[++i]){ OMEGA_B    = a[++j]; }
+
+      x1 = chi2_wp_wrapper(a);
+      fisher = 2*x1/(deltax*deltax*a0[k]*a0[k]);
+      start_dev[k] = sqrt(1/fisher)/a0[k];
+      printf("FISHER: %d %e %e\n",k,start_dev[k],x1);
+    }
+
+  // output_mcmc_quants(1);
+
+  x2=100; // set high to get ball rolling.
 
   if(!ThisTask) {
     printf("TRY 0 ");
@@ -695,4 +811,96 @@ int mcmc_restart3(double **chain, int n, double *chi2_prev, int *iweight)
       chain[i][3] -= log10(chain[i][4]);
     }
   return niter;
+}
+
+void qp_input_mcmc()
+{
+  char fname[1000],aa[1000];
+  FILE *fp;
+  int i,j,k;
+  float x1,x2,x3;
+  double **tmp, **tmp2;
+
+  sprintf(fname,"monopole_mockmean.dat");
+  fp = openfile(fname);
+  rsdm.np = filesize(fp);
+  rsdm.covar = dmatrix(1,rsdm.np,1,rsdm.np);
+  rsdm.r = dvector(1,rsdm.np);
+  rsdm.x = dvector(1,rsdm.np);
+  rsdm.e = dvector(1,rsdm.np);
+
+  for(j=1;j<=rsdm.np;++j)
+    {
+      fscanf(fp,"%f %f %f",&x1,&x2,&x3);
+      fgets(aa,1000,fp);
+      rsdm.x[j] = x2;
+      rsdm.r[j] = x1;
+      rsdm.e[j] = x3;
+    }
+  fclose(fp);
+
+
+  sprintf(fname,"monopole_mockmean.covar");
+  fp = openfile(fname);
+  for(j=1;j<=rsdm.np;++j)
+    for(k=1;k<=rsdm.np;++k)
+      fscanf(fp,"%lf",&rsdm.covar[j][k]);
+  fclose(fp);
+
+  // inver teh matrix
+  tmp=dmatrix(1,rsdm.np,1,1);
+  tmp2=dmatrix(1,rsdm.np,1,rsdm.np);
+  for(i=1;i<=rsdm.np;++i)
+    for(j=1;j<=rsdm.np;++j)
+      tmp2[i][j]=rsdm.covar[i][j];
+  gaussj(tmp2,rsdm.np,tmp,1);
+  for(i=1;i<=rsdm.np;++i)
+    for(j=1;j<=rsdm.np;++j)
+      rsdm.covar[i][j]=tmp2[i][j];
+  free_dmatrix(tmp,1,rsdm.np,1,1);
+  free_dmatrix(tmp2,1,rsdm.np,1,rsdm.np);
+
+  /*-- Now do the quadrupole
+   */
+
+  sprintf(fname,"Q_mockmean.dat");
+  fp = openfile(fname);
+  rsdq.np = filesize(fp);
+  rsdq.covar = dmatrix(1,rsdq.np,1,rsdq.np);
+  rsdq.r = dvector(1,rsdq.np);
+  rsdq.x = dvector(1,rsdq.np);
+  rsdq.e = dvector(1,rsdq.np);
+
+  for(j=1;j<=rsdq.np;++j)
+    {
+      fscanf(fp,"%f %f %f",&x1,&x2,&x3);
+      fgets(aa,1000,fp);
+      rsdq.x[j] = x2;
+      rsdq.r[j] = x1;
+      rsdq.e[j] = x3;
+    }
+  fclose(fp);
+
+
+  sprintf(fname,"Q_mockmean.covar");
+  fp = openfile(fname);
+  for(j=1;j<=rsdq.np;++j)
+    for(k=1;k<=rsdq.np;++k)
+      fscanf(fp,"%lf",&rsdq.covar[j][k]);
+  fclose(fp);
+
+  // inver teh matrix
+  tmp=dmatrix(1,rsdq.np,1,1);
+  tmp2=dmatrix(1,rsdq.np,1,rsdq.np);
+  for(i=1;i<=rsdq.np;++i)
+    for(j=1;j<=rsdq.np;++j)
+      tmp2[i][j]=rsdq.covar[i][j];
+  gaussj(tmp2,rsdq.np,tmp,1);
+  for(i=1;i<=rsdq.np;++i)
+    for(j=1;j<=rsdq.np;++j)
+      rsdq.covar[i][j]=tmp2[i][j];
+  free_dmatrix(tmp,1,rsdq.np,1,1);
+  free_dmatrix(tmp2,1,rsdq.np,1,rsdq.np);
+
+
 }

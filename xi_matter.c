@@ -31,8 +31,8 @@ double xi_interp(double r)
 {
   static int flag=0,prev_cosmo=0;
   static double *x,*y,*y2;
-  int n=30,i,j;
-  double a,xi_int(),rhi=150,rlo=0.1,dlogr,klo,s1,s2,tolerance=1.0e-6;
+  int n=300,i,j;
+  double a,xi_int(),rhi=R_MAX_2HALO,rlo=0.02,dlogr,klo,s1,s2,tolerance=1.0e-6;
 
   if(!flag || RESET_COSMOLOGY!=prev_cosmo)
     {
@@ -98,7 +98,7 @@ double xi_linear_interp(double r)
   static int flag=0,prev_cosmo=0;
   static double *x,*y,*y2;
   int n=100,i;
-  double a,rlo=0.1,rhi=150,dlogr,klo;
+  double a,rlo=0.02,rhi=150,dlogr,klo;
   double xi_linear_int();
 
   if(!flag || RESET_COSMOLOGY!=prev_cosmo)

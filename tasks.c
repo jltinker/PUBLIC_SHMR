@@ -37,6 +37,10 @@ void tasks(int argc, char **argv)
   char fname[100];
 
   
+  /* this is the code to get to the Fisher mock creation
+   */
+  //if(MCMC==3) fisher();
+
   /* If the bias if to be fit for from the clustering_filenames.dat
    * files...
    */
@@ -58,7 +62,7 @@ void tasks(int argc, char **argv)
    * distribution of the parameters, either real-space or redshift-space,
    * depending on what MCMC is set to.
    */
-  if(Task.MCMC==1 && SHMR_FLAG==0) 
+  if(Task.MCMC>=1 && SHMR_FLAG==0) 
     mcmc_minimization();
 
   if(Task.MCMC==1 && SHMR_FLAG==1) 
@@ -244,6 +248,8 @@ void tasks(int argc, char **argv)
     populate_simulation();
   if(Task.populate_sim==1 && !SHMR_FLAG)
     populate_simulation_hod();
+  if(Task.populate_sim==2 && !SHMR_FLAG)
+    populate_simulation_hod_density();
 
   /* Output the linear and non-linear dark matter power spectrum.
    * Non-linear P(k) calculated using Smith et al.
@@ -297,4 +303,8 @@ void tasks(int argc, char **argv)
   if(Task.halostats)
     output_halo_mass_function();
 
+  if(Task.multipoles) {
+    RESET_ZSPACE = 1;
+    xi_multipoles(1,&dx1,&dx2); }
+  //		  output_mcmc_quants(0,&dx1,&dx2);
 }

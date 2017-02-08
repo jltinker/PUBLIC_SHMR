@@ -17,12 +17,12 @@ void output_matter_power_spectrum()
   sprintf(aa,"%s.matter_pk",Task.root_filename);
   fp = fopen(aa,"w");
 
-  for(k=-300;k<=100;++k)
+  for(k=-400;k<=100;++k)
     {
       xk=pow(10.0,k/100.0);
       plin = linear_power_spectrum(xk)/(xk*xk*xk)*TWOPI*PI;
-      pnl = nonlinear_power_spectrum(xk)/(xk*xk*xk)*TWOPI*PI;
-      fprintf(fp,"%e %e %e\n",xk,plin,pnl);
+      pnl = nonlinear_power_spectrum(xk)/(xk*xk*xk)*TWOPI*PI;      
+      fprintf(fp,"%e %e %e %e\n",xk,plin,pnl,sqrt(transfnc(xk)));
     }
   fclose(fp);
 

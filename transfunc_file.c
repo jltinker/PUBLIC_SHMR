@@ -19,23 +19,26 @@
 double transfunc_file(double xk)
 {
   static double *x,*y,*y2;
-  static int flag=1,n;
+  static int flag=1,n,prev_cosmology=-999;
   int i;
   double t,x0;
   FILE *fp;
   char a[1000];
   float x1,x2;
 
-  if(flag)
+  if(flag || RESET_COSMOLOGY!=prev_cosmology)
     {
-      flag=0;
 
       fp=openfile(Files.TF_file);
       n=filesize(fp);
 
-      x=dvector(1,n);
-      y=dvector(1,n);
-      y2=dvector(1,n);
+      if(flag)
+	{
+	  x=dvector(1,n*2);
+	  y=dvector(1,n*2);
+	  y2=dvector(1,n*2);
+	}
+      flag=0;
       for(i=1;i<=n;++i)
 	{
 	  fscanf(fp,"%f %f",&x1,&x2);
@@ -49,6 +52,7 @@ double transfunc_file(double xk)
 	}
       fclose(fp);
       spline(x,y,n,1.0E+30,1.0E+30,y2);
+      prev_cosmology = RESET_COSMOLOGY;
     }
   xk=log(xk);
   splint(x,y,y2,n,xk,&t);

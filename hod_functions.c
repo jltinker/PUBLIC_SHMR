@@ -48,8 +48,11 @@ double one_halo_from_file(double m);
  * If the value of sigma_logM gets above 1 or so, then M_low can be rediculously 
  * small, so I have placed a lower limit on M_low of 1.0E+7 Msol/h
  */
+
+
 double N_cen(double m)
 {
+
   double x,f=1;
 
   //return(one_halo_from_file(m));
@@ -425,15 +428,16 @@ void set_HOD_params()
  */
 double func_mlow(double m)
 {
+  double cutoff = 0.01;
   /* Have a check in case the passed mass is equal to M_min, but the value of
    * N_cen is < 0.001 (which might be the case for very small sigma_logM)
    */
   //fprintf(stdout,"MLOTOP %e %e %e\n",exp(m),HOD.M_min,N_cen(exp(m)));
   if(fabs(exp(m)-HOD.M_min)<0.001*HOD.M_min)
-    if(N_cen(exp(m))<0.001*N_cen(HOD.M_min))return(0);
+    if(N_cen(exp(m))<cutoff*N_cen(HOD.M_min))return(0);
   //fprintf(stdout,"MLO %e %e %e %e %e\n",exp(m),N_cen(exp(m)),HOD.M_min,N_cen(HOD.M_min),HOD.M_low); 
   //return(N_cen(exp(m))-0.001); //changing to 0.001 of the value at HOD.M_Min
-  return(N_cen(exp(m))/N_cen(HOD.M_min)*1000 - 1);
+  return(N_cen(exp(m))/N_cen(HOD.M_min)/cutoff - 1);
 }
 
 /* It is straightforward to calculate what M_low

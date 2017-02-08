@@ -67,3 +67,22 @@ double pca_chi2(double *xm, int ii)
     }
   return chi2;
 }
+
+
+void covar_pca_xx(double **covar, double **evect, double *eval, int ndata)
+{
+  double **tmp, **tmp1, **tmp2, **diag, **tmp3;
+  int n,i,j,k,nrot;
+  double cumu = 0;
+
+  n = ndata;
+  tmp = dmatrix(1,n,1,n);
+
+  for(i=1;i<=n;++i)
+    for(j=1;j<=n;++j)
+      tmp[i][j] = covar[i][j]/sqrt(covar[i][i]*covar[j][j]);
+
+  svdcmp(tmp,n,n,eval,evect);
+  return;
+}
+

@@ -16,8 +16,10 @@ double GAMMA=0.2,         /* Shape parameter of EBW power spectrum */
   SIGMA_8Z0=0.8,          /* Normalization of power spectrum */
   RHO_CRIT=2.78e11,       /* Critial mass density  in h^2 M_sun/Mpc^3 */
   SPECTRAL_INDX=1.0,      /* n_s -> P(k) = k^n_s */
+  SPECTRAL_RUN=0.0,       /* dn_s/dlnk -> ns = ns_0 + dns/dlnk*ln(k/0.002) */
   OMEGA_M=0.27,           /* Matter density */
   OMEGA_Z=0.27,           /* Matter density at redshift z*/
+  OMEGA_L=-1,             /* vacuum desnity */
   OMEGA_TEMP=0.3,         /* For M/L minimization */
   OMEGA_B=0.0,            /* Baryon density */
   DELTA_CRIT=1.686,       /* Critical overdensity for linear collapse */
@@ -52,7 +54,10 @@ double GAMMA=0.2,         /* Shape parameter of EBW power spectrum */
   REDSHIFT=0,             /* redshift */
   SATELLITE_FRACTION=0,   /* fraction of galaxies that are satellites in the HOD */
   EXCLUSION_RADIUS=1,     /* factor that determines the lower halo mass limit in the transition regime (2halo) */
-  DENSITY_THRESHOLD=0;    /* Density at which you turn on change in HOD. */
+  R_MAX_2HALO=210,        /* Radius out to which to calculate the two-halo term */
+  DENSITY_THRESHOLD=0,    /* Density at which you turn on change in HOD. */
+  MAX_STELLAR_MASS=3.0E+12,  /* in log10 units, maximum stellar mass for tabulation */
+  ROOTNORM=-10;           /* Global for finding normalization of environmental HOD */
 
 int ITRANS=4,             /* Type of transfer function to be used */
   RESET_KAISER=0,         /* Flag to reset tabulated Kaiser distortion quantities */
@@ -79,7 +84,7 @@ int ITRANS=4,             /* Type of transfer function to be used */
   IVFLAG=0,
   WP_ONLY=0,              /* =1 use only wp, =0 use n(N) and M/L (+others in ml_min.c) */
   GAO_EFFECT=0,           /* =1 means that HOD changes in high density, =0 means lo den change.*/
-  N_HOD_PARAMS=9,         /* number of possible parameters for HOD. for use w/ MCMC */
+  N_HOD_PARAMS=7,         /* number of possible parameters for HOD. for use w/ MCMC */
   XCORR=0,                /* flag for cross-correlation */  
   RESTART = 0,            /* For restarting an MCMC chain (ml only) */
   USE_ERRORS = 0,         /* Flag for using systematic errors on massfunc, bias, etc in MCMC */
@@ -112,6 +117,7 @@ struct perform_tasks Task;
 struct workspace Work;
 struct COLOR_DATA wp_color;
 struct WPL wpl;
+struct RSD rsdq, rsdm;
 
 int SHMR_FLAG           = 0;   /* Flag for whether to use HOD or SHMR input parameters */
 int HINVERSE_UNITS      = 1;   /* Flag for having the code always assume that mass units (outside of Mstellar) are h-inverse */
@@ -134,3 +140,9 @@ int EXTERNAL_CONSTRAINTS= 0;
 int XIMATTER            = 0;
 int NOKAISER            = 0;
 int CENTRALS_ONLY       = 0;
+int RESET_ZSPACE        = 0;
+int HIGH_PRECISION      = 0;
+int LINEAR_PSPEC_FILE   = 0;
+int FITTING_BOSS        = 0;
+int IZED                = 0;
+int ASSEMBLY_BIAS       = 0;

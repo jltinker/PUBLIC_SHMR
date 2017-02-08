@@ -107,9 +107,10 @@ double halo_mass_function(double mass)
   mass = log10(mass)-11;
   fac = 1.0;
   //fac = 1.1;
-  //if(mass>0.15)
-  // fac = pow(mass-0.15,0.5)/(1+exp(pow(mass,1.1))*2)*wpl.satfac + 1;
-  //printf("NB! altering halo mass function by: %f %f\n",fac,mass);
+  if(mass>0.15)
+   fac = pow(mass-0.15,0.5)/(1+exp(pow(mass,1.1))*2)*wpl.satfac + 1;
+  fac = 1.0;
+  //printf("NB! altering halo mass function by: %f %f %f\n",fac,mass,wpl.satfac);
   n = n*fac;
   return(n);
 

@@ -78,6 +78,28 @@ int filesize(FILE *fp)
   return(i);
 }
 
+/* This takes a file and reads the number of lines in it,
+ * rewinds the file and returns the lines.
+ */
+int filesize_hdr(FILE *fp, int *nhdr)
+{
+  int i=-1, j;
+  char a[1000],aa;
+
+  *nhdr=0;
+  while(!feof(fp))
+    {
+      fscanf(fp,"%c",&aa);
+      if(aa=='#')(*nhdr)++;
+      i++;
+      fgets(a,1000,fp);
+    }
+  rewind(fp);
+  for(j=0;j<*nhdr;++j)
+    fgets(a,1000,fp);
+  return(i-*nhdr);
+}
+
 /* This opens a file and has an error trap
  * if the file does not exist.
  */

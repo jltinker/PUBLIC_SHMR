@@ -9,17 +9,15 @@
  * This is not the scale-dependent bias factor, which can be calculated later.
  * 
  * There are many variants of the bias in this function. 
- * The one it is set up to use is from the Tinker etal (in prep, currently) 
+ * The one it is set up to use is from the Tinker etal (2010)
  * bias paper calibrated from the SO halo catalogs from the Tinker et al mass functino
  * paper. The parameters of the bias functions are calibrated such that they will
  * work with any chosen halo overdensity.
  *
  * Other variants:
  *
- * The parameterization of b(M) is taken from Sheth Mo & Tormen (2001 MNRAS 232 1)
- * but the actual parameters have been replaced by the values of Appendix A in 
- * Tinker, Weinberg, Zheng, & Zehavi. 2005 Apj (M/L paper)
  *
+ * See also Sheth, Mo, Tormen (2001)
  * See also Seljak & Warren (2004).
  * See also Sheth & Tormen (1999)
  * See also Mo & White (1996)
@@ -63,8 +61,8 @@ double bias_fsigma(double sig, double r)
   //rvir = pow(3*exp(m)/(4*PI*200*RHO_CRIT*OMEGA_M),THIRD);
   //if(r<2.4*rvir)r=2.4*rvir;
   xi = xi_interp(r);
-  b = pow(1.0+xi*1.17,1.49/2.)*pow(1.0+xi*0.69,-2.09/2.0); //T05
-  //b = pow(1.0+xi*0.92,2.08)*pow(1.0+xi*0.74,-2.37); //SO recalibration (temporary)
+  //b = pow(1.0+xi*1.17,1.49/2.)*pow(1.0+xi*0.69,-2.09/2.0); //T05
+  b = pow(1.0+xi*0.92,2.08)*pow(1.0+xi*0.74,-2.37); //SO recalibration (temporary)
   return b*a;
 
 }
@@ -141,6 +139,8 @@ double bias(double mass)
   */
   a = pow(sig,-bias_a);
   b = 1 - bias_A*a/(a+1) + bias_B*pow(sig,-bias_b) + bias_C*pow(sig,-bias_c);
+
+  //
   return (b);
 
   printf("BOOx %e %e %e\n",mass,sig,b);
@@ -247,6 +247,12 @@ double bias_interp(double m, double r)
   splint(x,y,y2,n,m,&a);
   a = exp(a);
 
+  if(ASSEMBLY_BIAS==1 && m>log(1.0E14))
+    a *= 1.41;
+  if(ASSEMBLY_BIAS==-1 && m>log(1.0E14))
+    a /= 1.41;
+
+
   // if no scale-dependence required, return the large-scale value
   if(r<0) return a;
 
@@ -257,10 +263,11 @@ double bias_interp(double m, double r)
    */
 
   rvir = pow(3*exp(m)/(4*PI*200*RHO_CRIT*OMEGA_M),THIRD);
-  //if(r<2.8*rvir)r=2.8*rvir; // NB!!! ZENTNER COMP!!!!
+  if(r<2.8*rvir)r=2.8*rvir;
   xi = xi_interp(r);
-  b = pow(1.0+xi*1.17,1.49/2.)*pow(1.0+xi*0.69,-2.09/2.0); //T05
-  //b = pow(1.0+xi*0.92,2.08)*pow(1.0+xi*0.74,-2.37); //SO recalibration (temporary)
+  //b = pow(1.0+xi*1.17,1.49/2.)*pow(1.0+xi*0.69,-2.09/2.0); //T05
+  b = pow(1.0+xi*0.92,2.08)*pow(1.0+xi*0.74,-2.37); //SO recalibration (temporary)
+
   return b*a;
 }
 
@@ -274,5 +281,10 @@ double func_galaxy_bias(double m)
 {
   m=exp(m);
   return(dndM_interp(m)*N_avg(m)*bias_interp(m,-1.)*m);
+}
+double func_satellite_bias(double m)
+{
+  m=exp(m);
+  return(dndM_interp(m)*N_sat(m)*bias_interp(m,-1.)*m);
 }
 

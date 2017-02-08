@@ -111,7 +111,7 @@ double two_halo_real_space(double r)
 void calc_real_space_two_halo(double *r, double *xi, int *nn)
 {
   double xtemp[200],rtemp[200];
-  double mlimit,s2,rlo,rhi=120,dr,klo,tolerance=1.0e-7,s1;
+  double mlimit,s2,rlo,rhi=R_MAX_2HALO,dr,klo,tolerance=1.0e-7,s1;
   int i,j,imin=0,n;
   double t0,t1,t2,t1s=0,t2s=0;
 

@@ -23,7 +23,7 @@ void read_parameter_file(char *fname)
 #define INT 3
 #define CHAR 4
 #define LONG 4
-#define MAXTAGS 300
+#define MAXTAGS 1000
 
   FILE *fd,*fdout;
 
@@ -41,6 +41,15 @@ void read_parameter_file(char *fname)
   strcpy(tag[nt],"fit_for_bias");
   addr[nt]=&Task.fit_for_bias;
   id[nt++]=INT;
+
+  strcpy(tag[nt],"LINEAR_PSPEC_FILE");
+  addr[nt]=&LINEAR_PSPEC_FILE;
+  id[nt++]=INT;
+  strcpy(tag[nt],"PspecFile"); 
+  addr[nt]=Files.PspecFile;
+  id[nt++]=STRING;
+
+  
 
   // inputs for the SHMR relation
   strcpy(tag[nt],"EXTERNAL_CONSTRAINTS");
@@ -113,6 +122,7 @@ void read_parameter_file(char *fname)
   addr[nt]=&wpl.a[11];
   id[nt++]=DOUBLE;
 
+  /*
   strcpy(tag[nt],"SHMR.M1HighA");
   addr[nt]=&wpl.a[12];
   id[nt++]=DOUBLE;
@@ -122,7 +132,7 @@ void read_parameter_file(char *fname)
   strcpy(tag[nt],"SHMR.M1LowCut");
   addr[nt]=&wpl.a[14];
   id[nt++]=DOUBLE;
-
+  */
   strcpy(tag[nt],"SHMR2.MhaloNorm");
   addr[nt]=&wpl.a[12];
   id[nt++]=DOUBLE;
@@ -156,7 +166,7 @@ void read_parameter_file(char *fname)
   strcpy(tag[nt],"SHMR2.alpha_sat");
   addr[nt]=&wpl.a[22];
   id[nt++]=DOUBLE;
-
+  /*
   strcpy(tag[nt],"SHMR2.M1HighA");
   addr[nt]=&wpl.a[23];
   id[nt++]=DOUBLE;
@@ -166,6 +176,7 @@ void read_parameter_file(char *fname)
   strcpy(tag[nt],"SHMR2.M1LowCut");
   addr[nt]=&wpl.a[25];
   id[nt++]=DOUBLE;
+  */
 
   SATELLITE_PARAMETERIZATION=0;
   strcpy(tag[nt],"SATELLITE_PARAMETERIZATION");
@@ -180,7 +191,7 @@ void read_parameter_file(char *fname)
     {
       sprintf(aa,"red_central_fraction[%d]",i);
       strcpy(tag[nt],aa);
-      addr[nt]=&wpl.a[26+i];
+      addr[nt]=&wpl.a[22+i];
       id[nt++]=DOUBLE;
     }
 
@@ -518,6 +529,10 @@ void read_parameter_file(char *fname)
       id[nt++]=INT;
     }
 
+  strcpy(tag[nt],"multipoles");
+  addr[nt]=&Task.multipoles;
+  id[nt++]=INT;
+    
   strcpy(tag[nt],"clustering");
   addr[nt]=&Task.clustering;
   id[nt++]=INT;
@@ -571,6 +586,12 @@ void read_parameter_file(char *fname)
   id[nt++]=INT;
   Task.populate_sim=0;
 
+  
+  strcpy(tag[nt], "HOD_delta");
+  addr[nt]=&Task.HOD_delta;
+  id[nt++]=INT;
+  Task.HOD_delta=0;
+  
   strcpy(tag[nt],"HaloFile");
   addr[nt]=&Files.HaloFile;
   id[nt++]=STRING;
@@ -734,6 +755,52 @@ void read_parameter_file(char *fname)
 	  fprintf(stderr,"ERROR: missing SHMR2.M1HighA when choosing extended SATELLITE_PARAMETERIZATION=1");
 	}
 
+      if(!strcmp(tag[i],"SHMR"))continue;
+      if(!strcmp(tag[i],"SHMR_FLAG"))continue;
+      if(!strcmp(tag[i],"COLOR"))continue;
+
+      if(!strcmp(tag[i],"SHMR.M1HighA"))continue;
+      if(!strcmp(tag[i],"SHMR.M1HighB"))continue;
+      if(!strcmp(tag[i],"SHMR.M1LowCut"))continue;
+      if(!strcmp(tag[i],"SHMR2.M1HighA"))continue;
+      if(!strcmp(tag[i],"SHMR2.M1HighB"))continue;
+      if(!strcmp(tag[i],"SHMR2.M1LowCut"))continue;
+      if(!strcmp(tag[i],"StellarMassFunctionCovarFilename"))continue;
+      if(!strcmp(tag[i],"ClusteringCovarFilenames"))continue;
+      if(!strcmp(tag[i],"shmr_minimize"))continue;
+      if(!strcmp(tag[i],"StellarMassFunctionFilename"))continue;
+      if(!strcmp(tag[i],"ClusteringFilenames"))continue;
+      if(!strcmp(tag[i],"LensingFilenames"))continue;
+
+      if(!strcmp(tag[i],"SHMR2.MhaloNorm"))continue;
+      if(!strcmp(tag[i],"SHMR2.MstarNorm"))continue;
+      if(!strcmp(tag[i],"SHMR2.beta"))continue;
+      if(!strcmp(tag[i],"SHMR2.delta"))continue;
+      if(!strcmp(tag[i],"SHMR2.gamma"))continue;
+      if(!strcmp(tag[i],"SHMR2.scatter"))continue;
+      if(!strcmp(tag[i],"SHMR2.McutNorm"))continue;
+      if(!strcmp(tag[i],"SHMR2.M1Norm"))continue;
+      if(!strcmp(tag[i],"SHMR2.McutSlope"))continue;
+      if(!strcmp(tag[i],"SHMR2.M1Slope"))continue;
+      if(!strcmp(tag[i],"SHMR2.alpha_sat"))continue;
+
+      if(!strcmp(tag[i],"SHMR.MhaloNorm"))continue;
+      if(!strcmp(tag[i],"SHMR.MstarNorm"))continue;
+      if(!strcmp(tag[i],"SHMR.beta"))continue;
+      if(!strcmp(tag[i],"SHMR.delta"))continue;
+      if(!strcmp(tag[i],"SHMR.gamma"))continue;
+      if(!strcmp(tag[i],"SHMR.scatter"))continue;
+      if(!strcmp(tag[i],"SHMR.McutNorm"))continue;
+      if(!strcmp(tag[i],"SHMR.M1Norm"))continue;
+      if(!strcmp(tag[i],"SHMR.McutSlope"))continue;
+      if(!strcmp(tag[i],"SHMR.M1Slope"))continue;
+      if(!strcmp(tag[i],"SHMR.alpha_sat"))continue;
+
+      if(!strcmp(tag[i],"LINEAR_PSPEC_FILE"))continue;
+      if(!strcmp(tag[i],"PspecFile"))continue;
+      if(!strcmp(tag[i],"EXTERNAL_CONSTRAINTS"))continue;
+
+
       if(!strcmp(tag[i],"fit_for_bias"))continue;
       if(!strcmp(tag[i],"EXTERNAL_CONSTRAINTS"))continue;
       if(!strcmp(tag[i],"VARIABLE_EXCLUSION"))continue;
@@ -828,6 +895,7 @@ void read_parameter_file(char *fname)
 	  continue;
 	}
 	     
+      if(!strcmp(tag[i],"HOD_delta"))continue;
       if(!strcmp(tag[i],"color"))continue;
       if(!strcmp(tag[i],"fblue0_cen"))continue;
       if(!strcmp(tag[i],"sigma_fblue_cen"))continue;
@@ -865,6 +933,7 @@ void read_parameter_file(char *fname)
       if(!strcmp(tag[i],"free[16]"))continue;
 
       if(!strcmp(tag[i],"All"))continue;
+      if(!strcmp(tag[i],"multipoles"))continue;
       if(!strcmp(tag[i],"populate_sim"))continue;
       if(!strcmp(tag[i],"HaloFile"))continue;
       if(!strcmp(tag[i],"HOD"))continue;
@@ -972,6 +1041,18 @@ void read_parameter_file(char *fname)
       if(BOX_SIZE<=0) endrun("ERROR: M_max<=0 but not BOX_SIZE set!\n");
       HOD.M_max = find_maximum_halo_mass();
       printf("main> Setting HOD.M_max= %e for BOX_SIZE= %f\n",HOD.M_max,BOX_SIZE);
+    }
+
+  if(REDSHIFT>0)
+    {
+      SIGMA_8Z0 = SIGMA_8;
+      SIGMA_8 = SIGMA_8*growthfactor(REDSHIFT);
+      HUBBLEZ = sqrt(OMEGA_M*pow(1+REDSHIFT,3.0)+1-OMEGA_M)/(1+REDSHIFT);
+      OMEGA_Z = OMEGA_M*pow(1+REDSHIFT,3.0)/(OMEGA_M*pow(1+REDSHIFT,3.0)+(1-OMEGA_M));
+      fprintf(stdout,"SIGMA_8(Z=%.3f)= %.4f\n",REDSHIFT,SIGMA_8);
+      fprintf(stdout,"H(Z=%.3f)/H0/(1+z)= %.4f, OMEGA_M(z)= %.3f\n",REDSHIFT,HUBBLEZ,OMEGA_Z);
+      RESET_COSMOLOGY++;
+      set_HOD_params();
     }
 
   /* Other initialization stuff.

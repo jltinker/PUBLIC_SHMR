@@ -61,19 +61,24 @@ double ms_to_mhalo(double ms, double *a)
 double red_central_fraction(double mass, double *a)
 {
   int i,j,k;
-  static double *mm, *yy, *aa, aprev=20;
+  static double *mm, *yy, *aa, aprev=20, HALO_MIN=6.3E10, HALO_MAX=1.0E14;
   static int flag=1, n=5, nbuf=22;
   double fred;
 
   if(COLOR==0)return 0;
 
+  // doing this for BOSS
+  //HALO_MIN = 3.0E12;
+
+  // NB changing this to have HOD.M_max be the highest mass bin
   if(flag)
     {
+      wpl.reset_fred = 1;
       flag = 0;
       aa = dvector(1,n);
       mm = dvector(1,n);
       for(i=1;i<=n;++i)
-	mm[i] = log(1.0e14/6.3e10)/(n-1.0)*(i-1) + log(6.3e10);
+	mm[i] = log(HALO_MAX/HALO_MIN)/(n-1.0)*(i-1) + log(HALO_MIN);
       yy = dvector(1,n);
     }
   if(wpl.reset_fred)
@@ -84,15 +89,17 @@ double red_central_fraction(double mass, double *a)
       aa[1] = pow(10.0,aa[1]);
       aa[2] = pow(10.0,aa[2]);
       spline(mm,aa,n,1.0E+30,1.0E+30,yy);
+      for(i=1;i<=n;++i)
+	printf("REDX %e %e %e\n",mm[i]/log(10),aa[i],yy[i]);
     }
 
   for(i=110;i<=-150;++i)
     {
       splint(mm,aa,yy,n,i/10.0*log(10),&fred);
-      fprintf(stdout,"%d %e\n",i,fred);
+      fprintf(stdout,"FRED %d %e\n",i,fred);
     }
   for(i=1;i<=-n;++i)
-    printf("%e %e %e\n",mm[i],aa[i],yy[i]);
+    printf("REDX %e %e %e\n",mm[i]/log(10),aa[i],yy[i]);
 
   //if(log(mass)>mm[n])return aa[n];
 
@@ -161,6 +168,7 @@ int set_up_hod_for_shmr(double mlo, double mhi, double *a)
   }
   HOD.M_cut = pow((HOD.M_min/1e12),a[9+ibuf])*a[7+ibuf]*1e12;     //linear function for log(Mcut) and log(Mmin)
 
+  //printf(" BUH %e %e %d %e\n",mlo,HOD.M_min,ibuf,ms_to_mhalo(mlo,&wpl.a[ibuf]));
   HOD.M_low = set_low_mass_shmr();	  
   if(HOD.M_low<0)return -1;
    
@@ -187,16 +195,13 @@ int set_up_hod_for_shmr(double mlo, double mhi, double *a)
   //-----
 
   if(HOD.M_low > HOD.M_min)
-    fprintf(stderr,"WARNING: M_low>M_min for Mstar_bin=[%e,%e] %e %e\n",mlo,mhi,HOD.M_low,HOD.M_min);
+    fprintf(stdout,"WARNING: M_low>M_min for Mstar_bin=[%f,%f] %e %e %e %e\n",log10(mlo),log10(mhi),HOD.M_low,HOD.M_min,N_cen(HOD.M_low),N_cen(HOD.M_min));
   
-  muh(0);
   //GALAXY_DENSITY = qromo(func_galaxy_density_xigm,log(HOD.M_low),log(HOD.M_max),midpnt); 
   GALAXY_DENSITY = qromo(func_galaxy_density,log(HOD.M_low),log(HOD.M_max),midpnt); 
-  muh(1);
-  //GALAXY_BIAS = qromo(func_galaxy_bias,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY;
+  GALAXY_BIAS = qromo(func_galaxy_bias,log(HOD.M_low),log(HOD.M_max),midpnt)/GALAXY_DENSITY;
   BETA = pow(OMEGA_M,GAMMA)/GALAXY_BIAS;
-  muh(2);
-
+  
   // let's trap the error before then
   if(ERROR_FLAG==1)
     {
@@ -236,14 +241,14 @@ double Ncen_xigm(double m)
   static double *mh, *ncen, *zz;
   static int n=0, niter=0;
 
-  int i, ibuf;
+  int i, ibuf, imax = 1;
   double mlo, mhi, dlogm, a, ms1, ms2, ncen1, ncen2, max;
 
   ibuf = (1-BLUE_FLAG)*SHMR_PARAMS;
 
   if(!n)
     {
-      n=200;
+      n=1000;
       mh = dvector(1,n);
       ncen = dvector(1,n);
       zz = dvector(1,n);
@@ -255,7 +260,7 @@ double Ncen_xigm(double m)
       niter++;
 
       mlo = log(1.0E8);
-      mhi = log(1.0E+16);
+      mhi = log(5E+16);
       dlogm = (mhi-mlo)/(n-1);
 
       ms1 = wpl.mstar_upper; // assuming that wpl.mstar is in log10 already!!
@@ -271,7 +276,11 @@ double Ncen_xigm(double m)
 	  if(BLUE_FLAG) max = 1-max;
 	  ncen[i] = (ncen2 - ncen1)*max;
 
-	  //printf("NCEN %d %e %e %e %e %e %e \n",niter,mh[i],ncen[i],ncen1,ncen2,wpl.a[6+ibuf],log10(ms_to_mhalo_inversion(mh[i])));
+	  if(ncen[i]>ncen[imax]){ 
+	    //printf("MAX %d %d %e %e\n",i,imax,ncen[imax],ncen[i]);
+	    imax = i; 
+	  }
+	  //printf("NCENx %d %e %e %e %e %e %e \n",niter,mh[i],ncen[i],ncen1,ncen2,max,log10(ms_to_mhalo_inversion(mh[i])));
 
 	  //Alexie added condition (for Nebula)
 	  //Needed to change to -18 here for nebula
@@ -282,13 +291,25 @@ double Ncen_xigm(double m)
 	    exit(0);
 	  }
 
+	}
+
+      for(i=imax-1;i>=1;--i)
+	if((ncen[i]/ncen[imax])<LO_FRAC)break;
+      if(i==0)i=1;      
+      HOD.M_low = (mh[i]);
+      //printf("MLOW %f %f %e %e %d %d %e\n",ms1,ms2,HOD.M_low,(ncen[imax]),BLUE_FLAG,imax,(mh[imax]));
+
+      for(i=1;i<=n;++i)
+	{
 	  mh[i] = log(mh[i]);
 	  ncen[i] = log(ncen[i] + 1.0E-18);
 	}
       spline(mh,ncen,n,1.0E+30,1.0E+30,zz);
+
     }
   
   splint(mh,ncen,zz,n,log(m),&a);
+  //printf("NCEN %e %e\n",m,exp(a));
   return exp(a); 
 }
 
@@ -323,7 +344,7 @@ double ms_to_mhalo_inversion(double mass)
       wpl.reset_inversion = 0;
       
       mlo = log(1.0E-7);
-      mhi = log(5.0E12);
+      mhi = log(MAX_STELLAR_MASS);
       dlogm = (mhi-mlo)/(n-1);
 
       for(i=1;i<=n;++i)
@@ -407,27 +428,39 @@ double Nsat_xigm(double m)
 double set_low_mass_shmr()
 {
   double ncenlo, ncenhi, mlo;
-  int n=0;
+  int n=0, i;
 
-  if(HOD.M_min>HOD.M_max) 
+  // doing this routine now in the tabulation
+  return HOD.M_low;
+
+  if(HOD.M_min>HOD.M_max*0.1) 
     {
-      ncenhi = N_cen(HOD.M_max);
-      mlo = HOD.M_max;
+      ncenhi = N_cen(HOD.M_max*0.1);
+      mlo = HOD.M_max*0.1;
     }
   else 
     { 
       ncenhi = N_cen(HOD.M_min);
       mlo = HOD.M_min;
     }
-  if(ncenhi<1.0E-17)return -1;
   ncenlo = N_cen(mlo);
+  if(ncenhi<1.0E-17) {
+    for(i=120;i<=160;++i)
+      printf("GUU %e %e\n",i/10., N_cen(pow(10.0,i/10.0)));
+    printf("LOW ERROR %e %e %e %e %f %f\n",mlo,ncenlo,N_cen(mlo*0.9),HOD.M_min,wpl.mstar_lower,wpl.mstar_upper); 
+    return -1;
+  }
+  //if(ncenhi<1.0E-17)return -1;
   //printf("LOW %e %e %e %e\n",mlo,ncenlo,ncenhi,HOD.M_min);
   while(ncenlo/ncenhi>LO_FRAC) {  
     mlo /= 3.0; 
     ncenlo = N_cen(mlo);     
+    if(ncenlo<2.0E-18)return mlo;
     //printf("LOW %e %e %e\n",mlo,ncenlo,ncenhi);
     n++;
-    //if(n==10)    exit(0);
+    if(n==10){ 
+      printf("LOW %e %e %e\n",mlo,ncenlo,ncenhi);
+      fprintf(stderr,"ERROR in mlow\n");    return -1; }
   }
   ncenhi_g32 = ncenhi;
   //printf("%e %e %e %e\n",HOD.M_min,mlo,N_cen(mlo)/ncenhi,N_cen(mlo*3)/ncenhi);

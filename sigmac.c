@@ -156,11 +156,15 @@ double sigmac_radius_interp(double m)
 
 double sigmac(double rad)
 {
-  double xk1,s1=1,s2=0,sigma0;
+  double xk1,s1=1,s2=0,sigma0,lowL=0;
+
+  if(HIGH_PRECISION)
+    return sigmac_sirko(rad);
 
   rad1=rad;
+  if(BOX_SIZE>0)lowL = TWOPI/BOX_SIZE;
   xk1 = 1./(2.*PI*mabs(rad)); 
-  s1=qromo(func_sigmac,0.0,xk1,midpnt);
+  s1=qromo(func_sigmac,lowL,xk1,midpnt);
   s2=qromo(func_sigmac,xk1,1.e20,midinf);
   sigma0=sqrt((s1+s2)*(4*PI)/pow(2*PI,3.0));
   return sigma0; 
@@ -170,15 +174,16 @@ double sigmac(double rad)
 double sigmac_sirko(double rad)
 {
   double xk1,s1=1,s2=0,sigma0;
-  double integ_range,total,answer,allowed_error=1.0e-6;
+  double integ_range,total,answer,allowed_error=1.0e-10;
   int izone;
 
-  integ_range = 32.*PI/rad;
+  integ_range = 1.*PI/rad;
   answer = 1.; // dummy value to force while loop
   total = 0.;
   izone = 0;
   while (fabs(answer) > allowed_error*fabs(total)) {
     answer = integrate(func_sigmac,izone*integ_range,(izone+1)*integ_range,1,1);
+    //answer = qromo(func_sigmac,izone*integ_range,(izone+1)*integ_range,midpnt);
     total += answer;
     izone++;
   }
@@ -204,9 +209,9 @@ double func_sigmac(double xk)
     }
 
   if(ITRANS>0)
-    psp=pow(xk,SPECTRAL_INDX)*pow(transfnc(xk),2.0);
+    psp=pow(xk,SPECTRAL_INDX + SPECTRAL_RUN*log(xk/0.002))*pow(transfnc(xk),2.0);
   else
-    psp=pow(xk,SPECTRAL_INDX);
+    psp=pow(xk,SPECTRAL_INDX + SPECTRAL_RUN*log(xk/0.002));
   psp=psp*w*xk*xk;
   return(psp);
 }

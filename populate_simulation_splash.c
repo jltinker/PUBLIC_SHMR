@@ -93,7 +93,7 @@ void populate_simulation()
   double m1, m2, mfslope, rad, mstar, rproj, xs[20], vhalo, imag, minimum_halo_mass, 
     minimum_mstar, minimum_lgmstar;
   long IDUM=-555;
-  float xx[20], xd[3], xv[3], *subi, *submass, *temp;
+  float xx[20], xd[3], xv[3], *subi, *submass, *temp, aexp;
 
 
   fprintf(stderr,"\n\nPOPULATING SIMULATION WITH SHMR.\n");
@@ -142,7 +142,7 @@ void populate_simulation()
     {
       ibluecen[ii] = 0;
       fscanf(fp,"%d %lf %f %f %f %f %f %f %f %f",
-	     &i,&mass,&x1,&x1,&xh[0],&xh[1],&xh[2],&vh[0],&vh[1],&vh[2]);
+	     &i,&mass,&x1,&aexp,&xh[0],&xh[1],&xh[2],&vh[0],&vh[1],&vh[2]);
 
       // output the central with probability given by red_central_fraction
       fred = red_central_fraction(mass,wpl.a);
@@ -159,7 +159,7 @@ void populate_simulation()
 	  mstar = log10(ms_to_mhalo_inversion(mass));
 	  m1 = gasdev(&IDUM)*wpl.a[6+(1-BLUE_FLAG)*11]+(mstar);
 	  if(m1>minimum_lgmstar) {
-	    fprintf(fp2,"%e %e %e %e %e %e %d %e %e\n",xh[0],xh[1],xh[2],vh[0],vh[1],vh[2],1,m1,mass);
+	    fprintf(fp2,"%e %e %e %e %e %e %d %e %e %f\n",xh[0],xh[1],xh[2],vh[0],vh[1],vh[2],1,m1,mass,aexp);
 	    fprintf(fp3,"%d\n",haloid);
 	  }
 	}
@@ -177,8 +177,8 @@ void populate_simulation()
 	  r = NFW_position(mass,xg);
 	  NFW_velocity(mass,vg,mag);
 	  boxwrap_galaxy(xh,xg);
-	  fprintf(fp2,"%e %e %e %e %e %e %d %e %e\n",
-		  xg[0],xg[1],xg[2],vh[0]+vg[0],vh[1]+vg[1],vh[2]+vg[2],0,m1,mass);
+	  fprintf(fp2,"%e %e %e %e %e %e %d %e %e %f\n",
+		  xg[0],xg[1],xg[2],vh[0]+vg[0],vh[1]+vg[1],vh[2]+vg[2],0,m1,mass,-1.0);
 	  fprintf(fp3,"%d\n",haloid);
 	}	
       fflush(fp2);
@@ -220,7 +220,7 @@ void populate_simulation()
   for(ii=1;ii<=nhalo;++ii)
     {
       fscanf(fp,"%d %lf %f %f %f %f %f %f %f %f",
-	     &i,&mass,&x1,&x1,&xh[0],&xh[1],&xh[2],&vh[0],&vh[1],&vh[2]);
+	     &i,&mass,&x1,&aexp,&xh[0],&xh[1],&xh[2],&vh[0],&vh[1],&vh[2]);
       if(mass<minimum_halo_mass)continue;
       haloid++;
 
@@ -232,7 +232,7 @@ void populate_simulation()
       m1 = gasdev(&IDUM)*wpl.a[6+(1-BLUE_FLAG)*11]+(mstar);
       printf("BOO %e %e %e\n",mass,mstar,m1);
       if(m1>minimum_lgmstar) {
-	fprintf(fp2,"%e %e %e %e %e %e %d %e %e\n",xh[0],xh[1],xh[2],vh[0],vh[1],vh[2],1,m1,mass);
+	fprintf(fp2,"%e %e %e %e %e %e %d %e %e %f\n",xh[0],xh[1],xh[2],vh[0],vh[1],vh[2],1,m1,mass,aexp);
 	fprintf(fp3,"%d\n",haloid);
       }
 
@@ -247,8 +247,8 @@ void populate_simulation()
 	  r = NFW_position(mass,xg);
 	  NFW_velocity(mass,vg,mag);	
 	  boxwrap_galaxy(xh,xg);
-	  fprintf(fp2,"%e %e %e %e %e %e %d %e %e\n",
-		  xg[0],xg[1],xg[2],vh[0]+vg[0],vh[1]+vg[1],vh[2]+vg[2],0,m1,mass);
+	  fprintf(fp2,"%e %e %e %e %e %e %d %e %e %f\n",
+		  xg[0],xg[1],xg[2],vh[0]+vg[0],vh[1]+vg[1],vh[2]+vg[2],0,m1,mass,aexp);
 	  fprintf(fp3,"%d\n",haloid);
 	}	
       fflush(fp2);

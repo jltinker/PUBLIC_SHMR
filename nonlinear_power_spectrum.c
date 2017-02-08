@@ -14,6 +14,7 @@
  */
 double func_nl(double r);
 void tabulate_pk_nl(double *kk, double *pknl, int nk);
+double linear_power_spectrum_file(double xk);
 
 /* This returns the linear power 
  *   Delta = 4pi*k^3 P(k)/(2pi)^3
@@ -25,18 +26,80 @@ double linear_power_spectrum(double xk)
   double a,psp,x1[4],y1[4];
   int i;
 
+  if(LINEAR_PSPEC_FILE)
+    return linear_power_spectrum_file(xk);
+
   if(pnorm<0 || prev_cosmology!=RESET_COSMOLOGY)
     {
+      //HIGH_PRECISION = 1;
       pnorm=SIGMA_8/sigmac(8.0);  
       pnorm*=pnorm;
+      //pnorm = 2.997862e+06; // NBNBNBNBNB!!!!! (testing) 
+      //printf("NORM %e %e %e %e %d\n",OMEGA_M,pnorm,exp(17.729 - 10.8065*OMEGA_M),SPECTRAL_RUN,HIGH_PRECISION);
+      //pnorm = exp(17.729 - 10.8065*OMEGA_M);
       prev_cosmology=RESET_COSMOLOGY;
+      HIGH_PRECISION = 0;
     }
   if(ITRANS>0)
-    psp=pow(xk,SPECTRAL_INDX)*pow(transfnc(xk),2.);
+    psp=pow(xk,SPECTRAL_INDX + SPECTRAL_RUN*log(xk/0.002))*pow(transfnc(xk),2.);
   else
-    psp=pow(xk,SPECTRAL_INDX);
+    psp=pow(xk,SPECTRAL_INDX + SPECTRAL_RUN*log(xk/0.002));
   psp=psp*pnorm*xk*xk*xk/(2*PI*PI);
   return(psp);
+}
+
+double linear_power_spectrum_file(double xk)
+{
+  static double *kk, *pk, *y2, ahi, bhi;
+  static int flag=1, nk, prev_cosmology=0;
+  FILE *fp;
+  double a,psp,x1[4],y1[4],xklog,pnorm;
+  int i,j;
+
+  if(flag || prev_cosmology!=RESET_COSMOLOGY)
+    {
+      fp = openfile(Files.PspecFile);
+      nk = filesize(fp)-1;
+      if(flag)
+	{
+	  kk = dvector(1,nk*2);
+	  pk = dvector(1,nk*2);
+	  y2 = dvector(1,nk*2);
+	}
+      flag = 0;
+      fscanf(fp,"%lf",&pnorm);
+      
+      for(i=1;i<=nk;++i)
+	{
+	  fscanf(fp,"%lf %lf",&kk[i],&pk[i]);
+	  xk = kk[i];
+	  pk[i] = log(pk[i]*SIGMA_8*SIGMA_8/pnorm/pnorm*xk*xk*xk/(2*PI*PI));
+	  kk[i] = log(kk[i]);
+	}
+      spline(kk,pk,nk,1.0E+30,1.0E+30,y2);
+
+      /* This takes the last four points in the power spectrum at high k
+       * and fits a power law to them for extrapolation.
+       */
+      for(i=0;i<4;++i)
+	{
+	  x1[i]=(kk[nk-3+i]);
+	  y1[i]=(pk[nk-3+i]);
+	}
+      least_squares(x1,y1,4,&ahi,&bhi);
+      prev_cosmology = RESET_COSMOLOGY;
+    }
+
+  xklog=log(xk);
+
+  /* If xk larger than highest k, return extrapolation.
+   */
+  if(xklog>kk[nk])
+    return((exp((ahi+bhi*xklog))));
+
+  splint(kk,pk,y2,nk,xklog,&a);
+  printf("NOO %e %e\n",exp(xklog),exp(a));
+  return(exp(a));
 }
 
 double nonlinear_power_spectrum(double xk)
@@ -98,7 +161,7 @@ void tabulate_pk_nl(double *kk, double *pknl, int nk)
 
   /* Calculate the non-linear scale.
    */
-  r_nl = exp(zbrent(func_nl,log(0.01),log(10.0),1.0E-4));
+  r_nl = exp(zbrent(func_nl,log(0.001),log(100.0),1.0E-6));
   if(OUTPUT)
     fprintf(stdout,"R_NL= %f\n",r_nl);
 
@@ -112,8 +175,8 @@ void tabulate_pk_nl(double *kk, double *pknl, int nk)
 
   /* Spectral curvature.
    */
-  lnk_hi=10.0;
-  lnk_lo=-10.0;
+  lnk_hi=log(200);
+  lnk_lo=log(0.0001);
   dlnk=(lnk_hi-lnk_lo)/n;
   s1=0;
   for(i=1;i<=n;++i)

@@ -293,6 +293,7 @@ double chi2_wp(double *a)
 
   double rlo,rhi,rmin,rmax,dlogr,integrated_wp_bin(),omega_temp;
 
+
   if(FIRST_CALL)
     {
       flag = 1;
@@ -360,6 +361,7 @@ double chi2_wp(double *a)
     for(i=1;i<=ncf_hod;++i)printf("%e ",a[i]);
     printf("\n");
   }
+  
 
   if(HOD.pdfs==2 && HOD.M_cut<1.0e7)return(1.0e7);
   if(HOD.pdfs==2 && HOD.M_cut>1.0e15)return(1.0e7);
@@ -451,7 +453,7 @@ double chi2_wp(double *a)
   
   if(HOD.color>=niter)
     flag = 1;
-  if(MCMC>1)
+  if(MCMC>2)
     flag = 0; //we've already onverted the matrix somewhere else
 
   if(flag && COVAR)
@@ -480,12 +482,13 @@ double chi2_wp(double *a)
   x[1] = projected_xi(1.0);
   printf("%e\n",x[1]);
 
-  //omega_temp = OMEGA_M*pow(1+2.5,3.0)/(OMEGA_M*pow(1+2.5,3.0)+(1-OMEGA_M));
-  omega_temp = OMEGA_M;
-  BETA = pow(omega_temp,0.6)/qromo(func_galaxy_bias,log(HOD.M_low),log(HOD.M_max),midpnt)*
+  omega_temp = OMEGA_M*pow(1+REDSHIFT,3.0)/(OMEGA_M*pow(1+REDSHIFT,3.0)+(1-OMEGA_M));
+  //omega_temp = OMEGA_M;
+  BETA = pow(omega_temp,GAMMA)/qromo(func_galaxy_bias,log(HOD.M_low),log(HOD.M_max),midpnt)*
     GALAXY_DENSITY;
   if(OUTPUT)
-    printf("BETA = %f\n",BETA);
+    printf("BETA = %f %f\n",BETA,qromo(func_galaxy_bias,log(HOD.M_low),log(HOD.M_max),midpnt)/
+    GALAXY_DENSITY);
 
   rlo = exp(log(rmin) - 0.5*dlogr);
   for(i=1;i<=wp.np;++i)
@@ -597,28 +600,6 @@ double chi2_wp(double *a)
   ichi++;
   if(ichi==10)ichi=0;
 
-  /* Since using the n-body simulation leads to different
-   * chi^2 values for the same parameters, just break from the 
-   * loop after 100 iterations (provided the chi^2 didn't jack up at lot).
-   */
-  if(DENSITY_DEPENDENCE)
-    {
-      k=1;
-      
-      /*
-      for(i=ichi+1;i<=ichi+9;++i)
-	{
-	  j = i%10;
-	  if(chi2_array[j]<chi2)k=0;
-	}
-      */
-      if(k)
-	{
-	  printf("EXITING WITH chi2 = %e\n",chi2);
-	  populate_simulation();
-	  exit(0);
-	}
-    }
 
   fflush(stdout);
   return(chi2);

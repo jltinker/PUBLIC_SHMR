@@ -22,6 +22,8 @@ double growthfactor(double z)
   astart=1.0/(z+1);
   zp1=redshift+1;
   omega_L=1-OMEGA_M;
+  if(OMEGA_L>=0)
+    omega_L = OMEGA_L;
 
   hubble_i = sqrt(OMEGA_M/(astart*astart*astart) + 
 		  (1.0-OMEGA_M-omega_L)/(astart*astart) +omega_L);

@@ -16,19 +16,21 @@ double mcmc_shmr_initialize(double *a, double **cov1, double *avg1, double *star
 double chi2_smf_shmr(void);
 double chi2_wp_shmr(void);
 int check_shmr_parameters(double *a);
+int check_shmr_parameters_magnitude(double *a);
 void input_shmr_chain(double *eval, double **evect);
 
 /* external functions
  */
 void covar_pca(int ii);
 double external_constraints(void);
+double chi2_smf_primus();
 
 void mcmc_shmr()
 {
   double stepfac=1;
   double error=1,tolerance=0,**cov1,**tmp,*a,*avg1,chi2,chi2prev,
     **evect,*eval,*aprev,*atemp,**tmp1,*opar,x1,fsat,**chain,*start_dev,*eval_prev;
-  int n,i,j,k,nrot,niter=0,count=0,imax_chain=100000,NSTEP=50,NSTEP_MAX=10000,convergence=0;
+  int n,i,j,k,nrot,niter=0,count=0,imax_chain=100000,NSTEP=400,NSTEP_MAX=1000,convergence=0;
   long IDUM=-555;
 
   int *pcheck,pcnt,ptot=20,firstflag=1,*iweight,total_weight;
@@ -40,17 +42,35 @@ void mcmc_shmr()
   /* Get the SEED for the chain
    */
   IDUM=IDUM_MCMC;
-  if(ARGC>3)
-    IDUM = -1*abs(atoi(ARGV[3]));
+  if(ARGC>2)
+    IDUM = -1*abs(atoi(ARGV[2]));
   fprintf(stdout,"mcmc> ISEED= %d\n",(int)IDUM);
   
+  /* CHeck to see if we need to reset the redshift
+   */
+  if(IDUM<=-1000)
+    {
+      i = abs(IDUM)%100;
+      IZED = i;
+      REDSHIFT = 0.2 + (i+0.5)*0.02;
+      SIGMA_8 = SIGMA_8Z0*growthfactor(REDSHIFT);
+      RESET_COSMOLOGY++;
+      printf("WARNING: changing to z=%f and s8=%f\n",REDSHIFT,SIGMA_8);
+      //if(i==0 || i==1 || i==2 || i==3 || i==5 || i==10) { wpl.stepfac_burn /= 10; }
+    }
   
+
   /* what are the number of free parameters?
    * if doing no-color fits, params=11. If doing color fits, params=27.
    */
   n = 11 + 3*SATELLITE_PARAMETERIZATION + 2*VARIABLE_ALPHA;
   if(COLOR) n = 27 + 6*SATELLITE_PARAMETERIZATION + 4*VARIABLE_ALPHA;
   if(VARIABLE_EXCLUSION)n++;
+
+  // if fitting BOSS cutoff, add two more params
+  FITTING_BOSS = 1;
+  if(FITTING_BOSS)n+=2;
+
   fprintf(stderr,"mcmc> [%d] free parameters.\n",n);
   wpl.ncf = n;
   MCMC_OUTPUT = 1;
@@ -111,7 +131,7 @@ void mcmc_shmr()
 	wpl.a[i] = a[i] = (1+gasdev(&IDUM)*start_dev[i]*stepfac)*aprev[i];
       wpl.reset_inversion = 1;
 
-      if(check_shmr_parameters(a))continue;
+      if(check_shmr_parameters_magnitude(a))continue;
 
       if(MCMC_OUTPUT) {
 	printf("START %d ",count+1);
@@ -209,7 +229,7 @@ void mcmc_shmr()
       for(i=1;i<=n;++i) 
 	wpl.a[i] = a[i];
       wpl.reset_inversion = 1;
-      if(check_shmr_parameters(a))continue;
+      if(check_shmr_parameters_magnitude(a))continue;
 
       if(MCMC_OUTPUT) {
 	printf("START %d ",count+1);
@@ -278,16 +298,17 @@ double mcmc_shmr_initialize(double *a, double **cov1, double *avg1, double *star
     a[i] = wpl.a[i];
 
 			 
-
-  if(ARGC>2)
+  
+  if(ARGC>3)
     {
-      fp = openfile(ARGV[2]);
+      fp = openfile(ARGV[3]);
       fscanf(fp,"%d %d",&i,&j);
       for(i=1;i<=wpl.ncf;++i)
 	fscanf(fp,"%lf",&a[i]);
       fclose(fp);
       for(i=1;i<=wpl.ncf;++i)wpl.a[i] = a[i];
     }
+  
 
   start_dev[1]=0.03/10;                   // Mhalo norm
   start_dev[2]=0.03/10;                   // Mstellar norm
@@ -312,7 +333,7 @@ double mcmc_shmr_initialize(double *a, double **cov1, double *avg1, double *star
       start_dev[15] = 0.1;
     }
 
-  check_shmr_parameters(wpl.a);
+  check_shmr_parameters_magnitude(wpl.a);
 
   if(!ThisTask)
     {
@@ -328,8 +349,9 @@ double mcmc_shmr_initialize(double *a, double **cov1, double *avg1, double *star
 	cov1[i][j]=a[i]*a[j];
     }
 
-  x1=chi2_wp_shmr();
+  muh(0);
   x2=chi2_smf_shmr();
+  x1=chi2_wp_shmr();
 
   if(!ThisTask) {
     printf("TRY 0 ");
@@ -504,6 +526,8 @@ double chi2_smf_shmr()
   double chi2ngal, xmodel[1000], xmodelr[100],xmodelb[100];
   FILE *outfile, *outfile_cov;
 
+  if(DONT_FIT_SMF==2)return chi2_smf_primus();
+
   /* The HOD set up is different for the stellar mass function because
    * only really need to know the total number of central and satellites
    * not the full Ncen=f(M) and Nsat=f(sat) (doesn't call these functions)
@@ -634,7 +658,7 @@ double chi2_smf_shmr()
       xmodel[i] = ngal;
       
       if(MCMC_OUTPUT)
-	printf("SMF%d %e %e %e %e %e\n",niter,mstar[i],nstar[i],estar[i],ngal,cbias);
+	printf("SMF%d %e %e %e %e %e\n",niter,mstar[i],nstar[i],estar[i],ngal,ms_to_mhalo(pow(10.0,mstar[i]),wpl.a));
 
       if(ERROR_FLAG == 1){
 	printf("\n STOPPED IN chi2_stellar_mass_function %d\n",i);
@@ -667,6 +691,7 @@ double chi2_smf_shmr()
     }
 
 
+  muh(0);
   // Set this flag to 1 to avoid fitting the SMF
   // This must go and end and not beginning because otherwise galaxy_density is not calcualted properly.
   // ### why was code failing when galaxy density not calculated ??? 
@@ -718,7 +743,7 @@ int check_shmr_parameters(double *a)
   //if(a[6]<0.16)return 6;
 
   // FOR BIAS FITTING ONLY!!! NB NB NB (commenting out above if(a[6]...)
-  wpl.a[6] = a[6] = HOD.sigma_logM; //(putting it in a global variable for convenience)
+  //wpl.a[6] = a[6] = HOD.sigma_logM; //(putting it in a global variable for convenience)
 
   // This now varies around 2
   if(a[7]<0.0)return 7;     // Norm Mcut (poorly constrained)
@@ -815,3 +840,74 @@ void input_shmr_chain(double *eval, double **evect)
   
 }
 
+
+/* check and make sure the parameters selected are within the 
+ * acceptable parameter space.
+ */
+int check_shmr_parameters_magnitude(double *a)
+{
+  int check_flag, ibuf;
+  float m1;
+
+  // do some things that need to be done each time
+  if(VARIABLE_EXCLUSION) {
+    EXCLUSION_RADIUS = a[wpl.ncf]; // the exclusion radius is always the last parameter
+    if(EXCLUSION_RADIUS>2.0)return wpl.ncf;
+    if(EXCLUSION_RADIUS<1.0)return -wpl.ncf;
+  }
+  wpl.reset_fred = 1;
+
+  if(a[1]<=12.0)return 1;      // Mhalo_norm
+  if(a[1]>=15.8)return -1;
+    
+  if(a[2]<=10.3)return 2;      // Mstellar norm
+  if(a[2]>=13.0)return -2;
+ 
+  if(a[3]<=0.2)return 3;       // Beta 
+  if(a[3]>=0.8)return -3;
+
+  if(a[4]<=0.01)return 4;       // delta (If <0, affects the threshold HOD, strange things happen .. don't go below 0.3)
+  if(a[4]>=1.4)return -4;
+  
+  if(a[5]<=-0.5)return 5;      // gamma (can be <0)
+  if(a[5]>=5.0)return -5;
+
+  if(a[6]<=0.01)return 6;  // sigma_log_sm
+  if(a[6]>=0.5)return -6;
+  
+  // PUTTING A PRIOR ON THIS BASED ON THE MEASUREMENT ERROR
+  //if(a[6]<0.16)return 6;
+
+  // FOR BIAS FITTING ONLY!!! NB NB NB (commenting out above if(a[6]...)
+  //wpl.a[6] = a[6] = HOD.sigma_logM; //(putting it in a global variable for convenience)
+
+  // This now varies around 2
+  if(a[7]<0.0)return 7;     // Norm Mcut (poorly constrained)
+  if(a[7]>=40)return -7;
+  
+  // This now varies around 17
+  if(a[8]<0.0)return 8;     // Norm M1
+  if(a[8]>=140)return -8;
+  
+  // a[9] (slope) can be negative !!
+  if(a[9]<=-2.0)return 9;      // Slope Mcut
+  if(a[9]>=6)return -9;
+  
+  if(a[10]<=-2.0)return 10;    // Slope M1
+  if(a[10]>=4)return -10;
+
+  if(a[11]>3)return 11;
+  if(a[11]<0.1)return -11;
+
+  if(SHMR_PARAMS>11)
+    {
+      if(a[12]>1.0E17)return 12;
+      if(a[12]<1.0E10)return -12;
+      if(a[14]>3)return 13;
+      if(a[14]<0)return -13;
+      if(a[13]>1.0E17)return 14;
+      if(a[13]<1.0E3)return -14;
+    }
+
+  return 0;
+}
